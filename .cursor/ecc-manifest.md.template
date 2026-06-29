@@ -1,0 +1,81 @@
+﻿# 项目 · ECC 能力选型
+
+> 来源：[affaan-m/ECC](https://github.com/affaan-m/ECC)  
+> **DAILY** = 已 vendoring 到本 `.cursor/`；**LIBRARY** = `~/.cursor/skills/` 按需
+
+---
+
+## DAILY（已落地到 `.cursor/`）
+
+### Skills（本库 + vendored）
+
+| 类别 | 代表 |
+|------|------|
+| 工作流 | `scope-check`、`requirements-refinement`、`implement-feature`…（见 README 矩阵） |
+| 工作流剧本 | `workflow-playbooks` + `.cursor/workflows/`（需求/设计/开发/交付） |
+| 产品/调研/设计 | `market-research`、`deep-research`、`product-capability`、`blueprint`、`frontend-design-direction`、`ui-to-vue`、`make-interfaces-feel-better` |
+
+### Rules
+
+| 类别 | 文件 |
+|------|------|
+| 工作流 | `workflow-triggers.mdc`、`ai-execution.mdc`、`project-core.mdc` |
+| 项目栈 | `backend-spring.mdc`、`frontend-react.mdc`、`frontend-vue.mdc`、`api-contracts.mdc`、`docs-maintenance.mdc` |
+| ECC common | `common-*.mdc`（10 条） |
+| ECC Java | `java-*.mdc`（5 条） |
+| ECC React | `react-*.mdc`（5 条） |
+| ECC TypeScript | `typescript-*.mdc`（5 条） |
+| Vue（本库增补） | `vue-*.mdc`（5 条）、`frontend-vue.mdc` |
+
+### Agents（ECC vendored + 项目角色）
+
+| 类别 | 代表 |
+|------|------|
+| ECC | `java-reviewer`、`java-build-resolver`、`react-reviewer`、`security-reviewer`、`database-reviewer`、`architect`、`planner`、`code-reviewer`、`marketing-agent`、`a11y-architect` 等 |
+| Vue（本库增补） | `vue-reviewer`、`vue-build-resolver`、`frontend-vue-dev` |
+| 项目 | `product-manager`、`backend-dev`、`frontend-dev`、`frontend-vue-dev`、`qa-engineer`、`doc-sync` |
+
+### Evals
+
+| 文件 | 说明 |
+|------|------|
+| `_example-feature.md` | Capability eval 示例 |
+| `_example-requirements-handoff.md` | 需求 handoff 示例 |
+
+ECC **无**独立 `.cursor/evals/` 整包；按功能复制示例并配合 `eval-harness` Skill。
+
+### Hooks
+
+| 事件 | 行为 |
+|------|------|
+| `stop` | DoD 提醒 |
+
+---
+
+## LIBRARY（用户机全局，未 vendoring）
+
+| 类别 | 代表 |
+|------|------|
+| 审查 Skill | `review-bugbot`、`review-security` |
+| 治理 | `create-rule`、`create-skill` |
+| 其他栈 agents | django、go、rust、kotlin…（见 `~/.cursor/agents/ecc-*`） |
+| 其他栈 rules | python、csharp、php…（见 `~/.cursor/rules/`） |
+
+---
+
+## 刻意不引入
+
+| ECC 组件 | 原因 |
+|----------|------|
+| 全量 ECC hooks（~45KB） | 依赖插件 node 脚本 |
+| 非默认栈 agents/rules | django、go、rust…用 LIBRARY 或扩展 sync 脚本前缀 |
+
+---
+
+## 维护
+
+```powershell
+powershell -File scripts/sync-ecc-bundle.ps1
+```
+
+从 `~/.cursor` 刷新 vendored agents/rules。项目约束段在 `agents/backend-dev.md` 等，不与 ECC 同步覆盖。

@@ -1,0 +1,33 @@
+﻿---
+description: 前端 Vue 3/TS 约定
+globs: frontend/**/*
+alwaysApply: false
+---
+
+# 前端约定（Vue）
+
+> 栈规则：`.cursor/rules/vue-*.mdc`、`typescript-*.mdc`
+
+## 栈
+
+Vue 3 · TypeScript · Vite · Vue Router · Pinia（或项目选定状态库）
+
+## 目录
+
+- 页面：`views/<PageName>/index.vue` 或 `pages/<PageName>/index.vue`
+- 组件：`components/<ComponentName>/index.vue`
+- 组合式函数：`composables/use*.ts`
+- 状态：`stores/*.ts`（Pinia）
+
+## API
+
+- 基座：`api/client.ts` 或 `utils/request.ts`
+- 按域拆分 `api/*.ts`
+
+## 验收
+
+`cd frontend && npm run build`
+
+## 审查
+
+改 `.vue` 后建议 `@vue-reviewer`；构建失败用 `@vue-build-resolver`

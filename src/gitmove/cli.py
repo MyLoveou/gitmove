@@ -10,15 +10,17 @@ from rich.console import Console
 from rich.table import Table
 
 from gitmove import __version__, git
-from gitmove.config import config_path_for_repo, resolve_external_base
+from gitmove.config import config_path_for_repo
+from gitmove.doctor import apply_all as apply_all_report, init_repo, run_doctor
 from gitmove import link as link_mod
+from gitmove.platform_util import default_link_type, resolve_link_type
 from gitmove import skip as skip_mod
 from gitmove import worktree as worktree_mod
 
 app = typer.Typer(
     name="gitmove",
     help="Manage local-only Git exclusions: skip-worktree, external links, personal worktrees.",
-    no_args_is_help=True,
+    invoke_without_command=True,
 )
 skip_app = typer.Typer(help="skip-worktree: hide local changes to tracked files.")
 link_app = typer.Typer(help="Link repo paths to external directories (junction/symlink).")
@@ -36,10 +38,14 @@ def _root() -> Path:
 
 @app.callback()
 def main(
+    ctx: typer.Context,
     version: Optional[bool] = typer.Option(None, "--version", "-V", help="Show version."),
 ) -> None:
     if version:
         console.print(f"gitmove {__version__}")
+        raise typer.Exit(0)
+    if ctx.invoked_subcommand is None:
+        console.print(ctx.get_help())
         raise typer.Exit(0)
 
 
@@ -55,73 +61,55 @@ def init_cmd(
     """Initialize .git/gitmove.toml in the current repository."""
     root = _root()
     cfg_path = config_path_for_repo(root)
-    cfg = skip_mod.load_config(root)
-
-    if external_base:
-        cfg.external_base = external_base
-    skip_mod.save_config(root, cfg)
+    resolved = init_repo(root, external_base)
 
     console.print(f"[green]Initialized[/green] {cfg_path}")
-    console.print(f"External base: {resolve_external_base(cfg, root)}")
+    console.print(f"External base: {resolved}")
+    console.print(f"Platform link type: {default_link_type()}")
     console.print("\nNext steps:")
     console.print("  gitmove skip add <path>       # mark tracked file as local-only")
-    console.print("  gitmove link add <path>         # junction to external directory")
+    console.print("  gitmove link add <path>         # link to external directory")
     console.print("  gitmove apply                   # restore all settings after clone")
+    console.print("  gitmove gui                     # open visual interface")
 
 
 @app.command("apply")
 def apply_cmd() -> None:
     """Apply skip-worktree, links, and worktrees from config (run after clone)."""
     root = _root()
-    skip_results = skip_mod.apply_all(root)
-    link_results = link_mod.apply_links(root)
-    wt_results = worktree_mod.apply_worktrees(root)
+    report = apply_all_report(root)
 
     console.print("[bold]skip-worktree[/bold]")
-    _print_skip_table(skip_results)
+    _print_skip_table(report.skip)
 
     console.print("\n[bold]links[/bold]")
-    _print_link_table(link_results)
+    _print_link_table(report.links)
 
     console.print("\n[bold]worktrees[/bold]")
-    _print_worktree_table(wt_results)
+    _print_worktree_table(report.worktrees)
 
 
 @app.command("doctor")
 def doctor_cmd() -> None:
     """Check configuration vs actual git state."""
     root = _root()
-    cfg_path = config_path_for_repo(root)
-    if not cfg_path.exists():
+    if not config_path_for_repo(root).exists():
         console.print("[yellow]No config found.[/yellow] Run: gitmove init")
         raise typer.Exit(1)
 
-    issues = 0
-    for item in skip_mod.list_status(root):
-        if item.in_config and item.tracked and not item.skip_active:
-            console.print(f"[red]MISS[/red] skip-worktree not active: {item.path}")
-            issues += 1
-        if item.in_config and not (root / item.path).exists():
-            console.print(f"[yellow]WARN[/yellow] configured path missing: {item.path}")
+    report = run_doctor(root)
+    for issue in report.issues:
+        if issue.level == "error":
+            console.print(f"[red]MISS[/red] {issue.message}")
+        elif issue.level == "warn":
+            console.print(f"[yellow]WARN[/yellow] {issue.message}")
+        else:
+            console.print(f"[green]OK[/green] {issue.message}")
 
-    for item in link_mod.list_links(root):
-        if not item.repo_exists:
-            console.print(f"[red]MISS[/red] link missing in repo: {item.repo_path}")
-            issues += 1
-        elif item.is_link and not item.link_ok:
-            console.print(f"[yellow]WARN[/yellow] link target mismatch: {item.repo_path}")
-        elif not item.is_link and item.repo_exists:
-            console.print(f"[yellow]WARN[/yellow] path exists but is not a link: {item.repo_path}")
-
-    for item in worktree_mod.list_worktrees(root):
-        if not item.registered:
-            console.print(f"[red]MISS[/red] worktree not registered: {item.name} ({item.path})")
-            issues += 1
-
-    if issues == 0:
+    if report.ok and report.error_count == 0 and report.warn_count == 0:
         console.print("[green]All checks passed.[/green]")
-    else:
-        console.print(f"\n[yellow]{issues} issue(s)[/yellow]. Run: gitmove apply")
+    elif report.error_count:
+        console.print(f"\n[yellow]{report.error_count} issue(s)[/yellow]. Run: gitmove apply")
         raise typer.Exit(1)
 
 
@@ -134,6 +122,9 @@ def skip_add(
     try:
         result = skip_mod.add_skip(root, path)
     except FileNotFoundError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1) from exc
+    except ValueError as exc:
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(1) from exc
 
@@ -164,13 +155,13 @@ def skip_list() -> None:
 def link_add(
     path: str = typer.Argument(..., help="Repo-relative directory to link externally."),
     external: Optional[str] = typer.Option(None, "--external", "-e", help="External absolute path."),
-    link_type: str = typer.Option("junction", "--type", "-t", help="junction or symlink."),
+    link_type: Optional[str] = typer.Option(None, "--type", "-t", help="junction (Windows) or symlink."),
     migrate: bool = typer.Option(False, "--migrate", "-m", help="Move existing directory to external."),
 ) -> None:
     """Create junction/symlink from repo path to external directory."""
     root = _root()
     try:
-        entry = link_mod.add_link(root, path, external, link_type=link_type, migrate=migrate)
+        entry = link_mod.add_link(root, path, external, link_type=resolve_link_type(link_type), migrate=migrate)
     except (FileExistsError, RuntimeError, ValueError) as exc:
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(1) from exc
@@ -243,6 +234,19 @@ def worktree_remove(
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(1) from exc
     console.print(f"[green]Worktree removed[/green] {name}")
+
+
+@app.command("gui")
+def gui_cmd(
+    repo: Optional[str] = typer.Option(None, "--repo", "-r", help="Git repository path."),
+) -> None:
+    """Launch the cross-platform visual interface."""
+    try:
+        from gitmove.gui.app import main as gui_main
+    except ImportError as exc:
+        console.print("[red]GUI dependencies missing.[/red] Run: pip install gitmove")
+        raise typer.Exit(1) from exc
+    gui_main(repo_path=repo)
 
 
 def _print_skip_table(items: list) -> None:

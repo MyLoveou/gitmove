@@ -1,0 +1,46 @@
+﻿---
+description: "Vue Coding Style"
+globs: "**/*.vue, **/components/**/*.vue, **/views/**/*.vue, **/pages/**/*.vue"
+alwaysApply: false
+---
+# Vue Coding Style
+
+> Extends [typescript/coding-style.md](../typescript/coding-style.md) and [common/coding-style.md](../common/coding-style.md).
+
+## SFC structure
+
+Prefer `<script setup lang="ts">` with ordered blocks: script → template → style.
+
+```vue
+<script setup lang="ts">
+// imports, props, composables, logic
+</script>
+
+<template>...</template>
+
+<style scoped>...</style>
+```
+
+## Naming
+
+- Components: `PascalCase` file and symbol (`UserCard.vue`)
+- Composables: `useCamelCase` (`useUserList.ts`)
+- Props / emits: `camelCase` in script; kebab-case in template attributes when needed
+
+## File layout
+
+```
+src/
+├── components/
+├── views/ or pages/
+├── composables/
+├── stores/        # Pinia
+├── api/
+└── router/
+```
+
+## Style
+
+- Use `scoped` or CSS modules for component styles
+- Prefer composables over mixins
+- Keep SFCs under ~250 lines; split large templates

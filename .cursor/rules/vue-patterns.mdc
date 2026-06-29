@@ -1,0 +1,37 @@
+﻿---
+description: "Vue Patterns"
+globs: "**/*.vue, **/composables/**/*.ts, **/stores/**/*.ts"
+alwaysApply: false
+---
+# Vue Patterns
+
+> Extends [typescript/patterns.md](../typescript/patterns.md) and [common/patterns.md](../common/patterns.md).
+
+## Composition API
+
+- **State**: `ref` for primitives; `reactive` for grouped object state; `computed` for derived values
+- **Props**: `defineProps` + `withDefaults`; validate with TypeScript interfaces
+- **Emits**: `defineEmits` with typed event names
+- **Expose**: `defineExpose` only when parent must call child methods
+
+## Composables
+
+- One concern per composable (`usePagination`, `useAuth`)
+- Return readonly state when consumers should not mutate directly
+- Cleanup side effects in `onUnmounted`
+
+## Pinia
+
+- Option stores or setup stores; avoid duplicating server state without sync strategy
+- Actions for async API; getters for derived store state
+- No direct mutation of other stores from components — use actions
+
+## Router
+
+- Lazy-load route components: `() => import('./views/Page.vue')`
+- Navigation guards for auth; keep guard logic in composables when complex
+
+## UI libraries
+
+- Element Plus / Ant Design Vue / Vant: prefer on-demand import or auto-import resolver
+- Do not wrap every primitive in custom components without reuse justification

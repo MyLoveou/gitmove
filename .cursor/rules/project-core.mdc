@@ -1,0 +1,33 @@
+---
+description: 项目核心约束与版本边界
+alwaysApply: true
+---
+
+# 项目核心
+
+> 硬约束：`.cursor/constraints.md`  
+> 编码/安全/Git 基线：`.cursor/rules/common-*.mdc`
+
+## 仓库
+
+| 目录 | 职责 |
+|------|------|
+| `backend/` | API、持久化 |
+| `frontend/` | 页面、客户端 |
+| `docs/` | 需求、设计、产品 |
+
+## 不变量（按项目填写）
+
+1. （按项目填写）
+2. （按项目填写）
+
+## 禁止
+
+- 提交密钥、`.env`、本地数据库文件
+- 新能力在需求未定稿前编码（见 `requirements-refinement` Skill）
+- 使用已废弃 API 路径（按项目维护清单）
+
+## 验收
+
+- backend compile/test；改 backend 后重启
+- frontend build

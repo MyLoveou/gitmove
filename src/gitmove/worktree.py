@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from gitmove import git
-from gitmove.config import WorktreeEntry, config_path_for_repo
+from gitmove.config import WorktreeEntry
 from gitmove.skip import load_config, save_config
 
 
@@ -17,6 +17,15 @@ class WorktreeStatus:
     branch: str | None
     exists: bool
     registered: bool
+
+
+def _registered_paths(root: Path) -> set[str]:
+    result = git.run_git("worktree", "list", "--porcelain", cwd=root)
+    paths: set[str] = set()
+    for line in result.stdout.splitlines():
+        if line.startswith("worktree "):
+            paths.add(str(Path(line.split(" ", 1)[1]).resolve()))
+    return paths
 
 
 def add_worktree(
@@ -48,16 +57,19 @@ def add_worktree(
     cfg.worktrees.append(entry)
     save_config(root, cfg)
 
-    return WorktreeStatus(name=name, path=str(destination), branch=branch, exists=destination.exists(), registered=True)
+    registered = str(destination) in _registered_paths(root)
+    return WorktreeStatus(
+        name=name,
+        path=str(destination),
+        branch=branch,
+        exists=destination.exists(),
+        registered=registered,
+    )
 
 
 def list_worktrees(root: Path) -> list[WorktreeStatus]:
     cfg = load_config(root)
-    result = git.run_git("worktree", "list", "--porcelain", cwd=root)
-    existing_paths = set()
-    for line in result.stdout.splitlines():
-        if line.startswith("worktree "):
-            existing_paths.add(str(Path(line.split(" ", 1)[1]).resolve()))
+    existing_paths = _registered_paths(root)
 
     statuses: list[WorktreeStatus] = []
     for entry in cfg.worktrees:
@@ -93,15 +105,17 @@ def remove_worktree(root: Path, name: str, *, force: bool = False) -> None:
 def apply_worktrees(root: Path) -> list[WorktreeStatus]:
     cfg = load_config(root)
     results: list[WorktreeStatus] = []
+    registered = _registered_paths(root)
+
     for entry in cfg.worktrees:
-        path = Path(entry.path).expanduser()
-        if path.exists():
+        path = Path(entry.path).expanduser().resolve()
+        if str(path) in registered:
             results.append(
                 WorktreeStatus(
                     name=entry.name,
-                    path=str(path.resolve()),
+                    path=str(path),
                     branch=entry.branch,
-                    exists=True,
+                    exists=path.exists(),
                     registered=True,
                 )
             )

@@ -1,0 +1,28 @@
+﻿---
+description: 前端 React/TS 约定
+globs: frontend/**/*
+alwaysApply: false
+---
+
+# 前端约定（React）
+
+> 栈规则：`.cursor/rules/react-*.mdc`、`typescript-*.mdc`
+
+## 栈
+
+React · TypeScript · Vite · React Router
+
+## 目录
+
+- 页面：`pages/<PageName>/index.tsx`
+- 页私有组件：`pages/<PageName>/components/<ComponentName>/`
+- 共享：`components/<ComponentName>/`（每组件独立目录）
+
+## API
+
+- 基座：`api/client.ts`
+- 按域拆分 `api/*.ts`（契约见 `api-contracts.mdc`）
+
+## 验收
+
+`cd frontend && npm run build`

@@ -3,8 +3,12 @@ __pycache__/
 *.egg-info/
 dist/
 build/
+artifacts/
 .venv/
 venv/
 .pytest_cache/
+.coverage
 .mypy_cache/
 .ruff_cache/
+config.local.json
+*.local.json

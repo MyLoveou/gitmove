@@ -9,7 +9,8 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-from gitmove.config import GitMoveConfig, LinkEntry, config_path_for_repo, normalize_rel, resolve_external_base
+from gitmove.config import LinkEntry, normalize_rel, resolve_external_base, resolve_repo_path
+from gitmove.platform_util import resolve_link_type, subprocess_no_window_kwargs
 from gitmove.skip import load_config, save_config
 
 
@@ -47,6 +48,7 @@ def _create_junction(link_path: Path, target: Path) -> None:
         text=True,
         encoding="utf-8",
         errors="replace",
+        **subprocess_no_window_kwargs(),
     )
     if result.returncode != 0:
         raise RuntimeError(result.stderr.strip() or result.stdout.strip() or "mklink failed")
@@ -59,16 +61,15 @@ def _create_symlink(link_path: Path, target: Path, *, is_dir: bool) -> None:
     link_path.symlink_to(target, target_is_directory=is_dir)
 
 
-def create_link(link_path: Path, target: Path, link_type: str) -> None:
+def create_link(link_path: Path, target: Path, link_type: str | None = None) -> None:
+    resolved_type = resolve_link_type(link_type)
     target.mkdir(parents=True, exist_ok=True)
-    if link_type == "junction":
+    if resolved_type == "junction":
         if not target.is_dir():
             raise ValueError("junction requires a directory target")
         _create_junction(link_path, target)
-    elif link_type == "symlink":
-        _create_symlink(link_path, target, is_dir=target.is_dir())
     else:
-        raise ValueError(f"Unknown link type: {link_type}")
+        _create_symlink(link_path, target, is_dir=target.is_dir())
 
 
 def add_link(
@@ -76,10 +77,12 @@ def add_link(
     repo_rel: str,
     external: str | None = None,
     *,
-    link_type: str = "junction",
+    link_type: str | None = None,
     migrate: bool = False,
 ) -> LinkEntry:
     repo_path = normalize_rel(repo_rel)
+    resolve_repo_path(root, repo_path)
+    resolved_type = resolve_link_type(link_type)
     cfg = load_config(root)
     base = resolve_external_base(cfg, root)
 
@@ -109,9 +112,14 @@ def add_link(
             )
 
     if not link_path.exists():
-        create_link(link_path, target if target.is_dir() or link_type == "junction" else target.parent, link_type)
+        use_dir_target = target.is_dir() or resolved_type == "junction"
+        create_link(
+            link_path,
+            target if use_dir_target else target.parent,
+            resolved_type,
+        )
 
-    entry = LinkEntry(repo_path=repo_path, external_path=external_path, link_type=link_type)
+    entry = LinkEntry(repo_path=repo_path, external_path=external_path, link_type=resolved_type)
     cfg.links = [l for l in cfg.links if l.repo_path != repo_path]
     cfg.links.append(entry)
     save_config(root, cfg)
@@ -138,8 +146,25 @@ def list_links(root: Path) -> list[LinkStatus]:
     return [_status_for_entry(root, entry) for entry in cfg.links]
 
 
+def _remove_link_path(link_path: Path) -> None:
+    """Remove a junction/symlink without deleting the external target."""
+    if not link_path.exists():
+        return
+    if not _is_reparse_point(link_path):
+        raise FileExistsError(f"Path is not a link: {link_path}")
+    if os.name == "nt" and not link_path.is_symlink():
+        subprocess.run(
+            ["cmd", "/c", "rmdir", str(link_path)],
+            check=True,
+            **subprocess_no_window_kwargs(),
+        )
+    else:
+        link_path.unlink()
+
+
 def remove_link(root: Path, repo_rel: str, *, keep_external: bool = True) -> None:
     repo_path = normalize_rel(repo_rel)
+    resolve_repo_path(root, repo_path)
     cfg = load_config(root)
     entry = next((l for l in cfg.links if l.repo_path == repo_path), None)
     if not entry:
@@ -147,10 +172,7 @@ def remove_link(root: Path, repo_rel: str, *, keep_external: bool = True) -> Non
 
     link_path = root / repo_path
     if link_path.exists() and _is_reparse_point(link_path):
-        if link_path.is_dir() and os.name == "nt":
-            subprocess.run(["cmd", "/c", "rmdir", str(link_path)], check=True)
-        else:
-            link_path.unlink()
+        _remove_link_path(link_path)
 
     if not keep_external:
         target = Path(entry.external_path)

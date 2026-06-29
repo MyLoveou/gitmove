@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "hooks": {
+    "stop": [
+      {
+        "type": "prompt",
+        "prompt": "Agent 即将结束。若本会话改了代码：检查是否已执行 verification-gate、code-review-gate（若改业务代码）、backend-verify（若改 backend）。未完成则在 followup 列出待办。Hook input: $ARGUMENTS",
+        "timeout": 15
+      }
+    ]
+  }
+}

@@ -1,0 +1,32 @@
+---
+alwaysApply: true
+description: 工作流自动触发。详表唯一来源为 workflow-triggers Skill；命中信号须先读 Skill。
+---
+
+# 工作流触发（自动）
+
+> **详表唯一来源**：`.cursor/skills/workflow-triggers/SKILL.md`  
+> 维护时**只改 Skill**；本 Rule 保持极简，避免双份表漂移。
+
+收到用户消息、准备改代码、声称完成前：
+
+1. 读 `workflow-triggers` Skill（或本机已加载则扫描其触发表）
+2. 命中信号 → **先读**对应 `.cursor/skills/<name>/SKILL.md`
+3. 交付前 → 几乎总是 `verification-gate`
+
+## 快速入口
+
+| 场景 | 入口 |
+|------|------|
+| 不确定 | `workflow-triggers` |
+| **工作流剧本** | `workflow-playbooks` → `.cursor/workflows/*.md` |
+| 智能体模式 | `workflows/agent-patterns.md` · `ai/智能体模式.md` |
+| 新需求 / 新 API | `scope-check` → `requirements-refinement`（**已定稿**）→ `plan-workflow` |
+| 提需求、先写文档 | `requirements-refinement` |
+| 实现（新能力） | `implement-feature`（须需求文档已定稿） |
+| 修 bug / 小改 | `implement-feature`（可跳过需求沉淀） |
+| 交付 / PR | `verification-gate` |
+
+## 串联优先级
+
+`scope-check` → `requirements-refinement`（定稿）→ `plan-workflow` / `eval-harness` → `implement-feature` → `code-review-gate` → `verification-gate`

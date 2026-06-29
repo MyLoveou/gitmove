@@ -6,6 +6,7 @@ import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import tomli_w
 
 CONFIG_FILENAME = "gitmove.toml"
 
@@ -76,35 +77,26 @@ class GitMoveConfig:
         return cfg
 
     def save(self, path: Path) -> None:
-        lines: list[str] = []
-
-        lines.append("[skip-worktree]")
-        lines.append("paths = [")
-        for p in self.skip_paths:
-            lines.append(f'  "{escape_toml(p)}",')
-        lines.append("]")
-        lines.append("")
-
-        lines.append("[external]")
-        base = self.external_base or ""
-        lines.append(f'base = "{escape_toml(base)}"')
-        lines.append("")
-
-        lines.append("[links]")
-        for link in self.links:
-            lines.append(f'"{escape_toml(link.repo_path)}" = {{ path = "{escape_toml(link.external_path)}", type = "{link.link_type}" }}')
-        lines.append("")
-
-        lines.append("[worktrees]")
-        for wt in self.worktrees:
-            branch = wt.branch or ""
-            lines.append(
-                f'"{escape_toml(wt.name)}" = {{ path = "{escape_toml(wt.path)}", branch = "{escape_toml(branch)}" }}'
-            )
-        lines.append("")
-
+        payload: dict = {
+            "skip-worktree": {"paths": self.skip_paths},
+            "external": {"base": self.external_base or ""},
+            "links": {
+                link.repo_path: {
+                    "path": link.external_path,
+                    "type": link.link_type,
+                }
+                for link in self.links
+            },
+            "worktrees": {
+                wt.name: {
+                    "path": wt.path,
+                    "branch": wt.branch or "",
+                }
+                for wt in self.worktrees
+            },
+        }
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text("\n".join(lines), encoding="utf-8")
+        path.write_text(tomli_w.dumps(payload), encoding="utf-8")
 
 
 def config_path_for_repo(root: Path) -> Path:
@@ -112,11 +104,27 @@ def config_path_for_repo(root: Path) -> Path:
 
 
 def normalize_rel(path: str) -> str:
-    return path.replace("\\", "/").lstrip("./")
+    cleaned = path.replace("\\", "/").strip()
+    if cleaned.startswith("./"):
+        cleaned = cleaned[2:]
+    return cleaned
 
 
-def escape_toml(value: str) -> str:
-    return value.replace("\\", "\\\\").replace('"', '\\"')
+def resolve_repo_path(root: Path, rel_path: str) -> Path:
+    """Resolve a repo-relative path and ensure it stays inside the repository."""
+    normalized = normalize_rel(rel_path)
+    if not normalized:
+        raise ValueError("Path must not be empty")
+    if Path(normalized).is_absolute() or ".." in Path(normalized).parts:
+        raise ValueError(f"Path must stay inside repository: {rel_path}")
+
+    repo = root.resolve()
+    full = repo / normalized
+    try:
+        full.relative_to(repo)
+    except ValueError as exc:
+        raise ValueError(f"Path escapes repository: {rel_path}") from exc
+    return full
 
 
 def resolve_external_base(cfg: GitMoveConfig, root: Path) -> Path:

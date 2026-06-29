@@ -8,52 +8,74 @@
 
 配置保存在 **`.git/gitmove.toml`**，不会进入版本库。
 
+支持 **Windows / macOS / Linux**，提供 **CLI + 可视化 GUI**。
+
 ## 安装
 
-```powershell
-cd E:\项目\gitmove
+```bash
+cd /path/to/gitmove
 pip install -e .
 ```
 
-## 快速开始
+## 可视化界面（推荐）
+
+```bash
+# 方式一：独立命令
+gitmove-gui
+
+# 方式二：CLI 子命令
+gitmove gui
+
+# 指定仓库路径
+gitmove gui --repo /path/to/your/repo
+```
+
+GUI 功能：
+
+- 选择 / 切换 Git 仓库
+- 概览页：健康检查、外部目录配置
+- Skip-worktree / 外部链接 / Worktree 分页管理
+- 一键初始化、一键应用配置
+
+界面跟随系统浅色/深色主题（`System` 模式）。
+
+## CLI 快速开始
 
 在任意 Git 仓库内：
 
-```powershell
-# 1. 初始化（创建 .git/gitmove.toml）
+```bash
 gitmove init
-
-# 2. 已追踪文件：本地改但不提交
 gitmove skip add src/config.local.json
-
-# 3. 个人目录：链到仓库外（Windows 默认 junction，无需管理员）
 gitmove link add tools/personal
-
-# 4. 新 clone 后一键恢复
 gitmove apply
-
-# 5. 检查状态
 gitmove doctor
+```
+
+## 多平台说明
+
+| 平台 | 默认链接类型 | 说明 |
+|------|-------------|------|
+| Windows | `junction` | 目录联结，一般无需管理员权限 |
+| macOS / Linux | `symlink` | 符号链接，自动 fallback |
+
+手动指定链接类型：
+
+```bash
+gitmove link add tools/personal --type symlink
 ```
 
 ## 命令参考
 
 | 命令 | 说明 |
 |------|------|
+| `gitmove gui` | 打开可视化界面 |
+| `gitmove-gui` | 同上（独立入口） |
 | `gitmove init` | 初始化配置 |
 | `gitmove apply` | 应用 skip / link / worktree |
 | `gitmove doctor` | 诊断配置与实际状态 |
-| `gitmove skip add <path>` | 启用 skip-worktree |
-| `gitmove skip remove <path>` | 取消 skip-worktree |
-| `gitmove skip list` | 列出 skip 状态 |
-| `gitmove link add <path>` | 创建外部目录链接 |
-| `gitmove link add <path> --migrate` | 迁移已有目录到外部 |
-| `gitmove link set-base <dir>` | 设置默认外部根目录 |
-| `gitmove link list` | 列出链接 |
-| `gitmove link remove <path>` | 移除链接（默认保留外部数据） |
-| `gitmove worktree add <name> <path>` | 添加个人 worktree |
-| `gitmove worktree list` | 列出 worktree |
-| `gitmove worktree remove <name>` | 移除 worktree |
+| `gitmove skip add/remove/list` | skip-worktree 管理 |
+| `gitmove link add/list/remove/set-base` | 外部链接管理 |
+| `gitmove worktree add/list/remove` | worktree 管理 |
 
 ## 配置示例
 
@@ -66,54 +88,114 @@ paths = [
 ]
 
 [external]
-base = "E:/personal/myrepo"
+base = "/home/user/personal/myrepo"
 
 [links]
-"tools/personal" = { path = "E:/personal/myrepo/tools/personal", type = "junction" }
+"tools/personal" = { path = "/home/user/personal/myrepo/tools/personal", type = "symlink" }
 
 [worktrees]
-"sandbox" = { path = "E:/personal/myrepo-sandbox", branch = "personal/sandbox" }
+"sandbox" = { path = "/home/user/myrepo-sandbox", branch = "personal/sandbox" }
 ```
 
-## 典型工作流
+## 打包发布（Windows / macOS / Linux）
 
-### 已追踪配置文件
+### 本地打包
 
-```powershell
-gitmove skip add appsettings.json
-# 本地修改 appsettings.json，git status 不再显示
+```bash
+# 安装打包依赖
+pip install -e ".[build]"
+
+# 生成 CLI + GUI 可执行文件（单文件）
+python scripts/build.py --target all --onefile
 ```
 
-pull 前若远程也改了同一文件：
+产物：
+
+| 路径 | 说明 |
+|------|------|
+| `dist/gitmove` 或 `dist/gitmove.exe` | CLI |
+| `dist/gitmove-gui` 或 `dist/gitmove-gui.exe` | GUI（无控制台窗口） |
+| `artifacts/gitmove-<version>-<platform>-<arch>.zip/.tar.gz` | 发布压缩包 |
+
+快捷脚本：
 
 ```powershell
-gitmove skip remove appsettings.json
-git stash push -m "local" -- appsettings.json
-git pull
-git stash pop
-gitmove skip add appsettings.json
+# Windows
+powershell -File scripts/build.ps1
 ```
 
-### 个人工具目录
-
-```powershell
-gitmove link set-base E:\personal\myrepo
-gitmove link add tools/personal
-# 实际文件在 E:\personal\myrepo\tools\personal
+```bash
+# macOS / Linux
+chmod +x scripts/build.sh
+./scripts/build.sh
 ```
 
-### 个人实验分支
+Linux GUI 打包前需安装 Tk：
 
-```powershell
-gitmove worktree add sandbox E:\personal\myrepo-sandbox --new-branch --branch personal/sandbox
+```bash
+sudo apt-get install python3-tk   # Debian/Ubuntu
+```
+
+macOS 需已安装 Python 3.10+（系统或 Homebrew），自带 tkinter。
+
+### CI 多平台自动打包
+
+推送版本 tag 触发 GitHub Actions（`.github/workflows/release.yml`）：
+
+```bash
+git tag v0.2.0
+git push origin v0.2.0
+```
+
+将在 **windows-latest / macos-latest / ubuntu-latest** 三端并行构建，并上传 Release 附件。
+
+也可在 GitHub Actions 页面手动 **Run workflow**（workflow_dispatch）。
+
+### 使用打包产物
+
+```bash
+# CLI
+./gitmove init
+./gitmove skip add config.local.json
+./gitmove doctor
+
+# GUI — 双击 gitmove-gui，或：
+./gitmove-gui
+```
+
+**注意**：打包版仍依赖系统已安装 `git` 命令且在 PATH 中。
+
+## 开发与测试
+
+```bash
+pip install -e ".[dev]"
+pytest --cov=gitmove --cov-report=term-missing
+```
+
+Linux headless 环境（CI）使用 `xvfb-run -a pytest ...` 运行 GUI 集成测试。
+
+CI 工作流：`.github/workflows/test.yml`（Windows / macOS / Linux 三端）
+
+## 清理误提交本地文件
+
+若曾将 `config.local.json` 等本地文件提交进 Git：
+
+```bash
+# 1. 停止追踪（保留工作区文件）
+git rm --cached --sparse config.local.json
+
+# 2. 如需从历史中彻底删除（会改写历史，需团队协调）
+pip install git-filter-repo
+powershell -File scripts/purge-local-files-from-history.ps1   # Windows
+# 或 ./scripts/purge-local-files-from-history.sh            # macOS/Linux
 ```
 
 ## 设计说明
 
 - 不修改 `.gitignore`，团队无感知
-- 配置在 `.git/` 内，clone 后不自带，需 `gitmove apply` 恢复
+- 配置在 `.git/` 内，clone 后不自带，需 `gitmove apply` 或 GUI「一键应用」恢复
 - skip-worktree 是本地索引标记，换机器需重新 apply
-- link 默认用 Windows Junction（目录），一般不需要开发者模式
+- GUI 基于 CustomTkinter，跨平台原生窗口
 
 ## License
 

@@ -1,0 +1,30 @@
+﻿---
+description: docs 文档编写与契约同步约定
+globs: docs/**/*
+alwaysApply: false
+---
+
+# 文档约定
+
+> 契约与 API 信封：`.cursor/rules/api-contracts.mdc`
+
+## 结构
+
+- `requirements/features/` 单功能需求包（多轮沉淀，已定稿后可实现）
+- `design/` 架构、API、数据模型、`adr/`
+- `product/` 能力边界、路线图
+
+## 何时必须更新
+
+| 变更 | 更新 |
+|------|------|
+| 新/改 REST | `docs/design/03-API设计.md` |
+| 新/改表/实体 | `docs/design/02-数据模型.md` + migration |
+| 新功能需求 | `requirements/features/<id>.md` |
+| 架构抉择 | `design/adr/NNN-*.md` |
+| 交付范围 | `docs/product/capability.md`、`docs/product/roadmap.md` |
+
+## 禁止
+
+- 未经要求批量重写 README
+- 硬编码会变的测试 ID/token
