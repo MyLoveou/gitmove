@@ -8,6 +8,7 @@ from pathlib import Path
 from gitmove.config import config_path_for_repo
 from gitmove import link as link_mod
 from gitmove import skip as skip_mod
+from gitmove import vendor as vendor_mod
 from gitmove import worktree as worktree_mod
 
 
@@ -40,6 +41,7 @@ class ApplyReport:
     skip: list[skip_mod.SkipStatus]
     links: list[link_mod.LinkStatus]
     worktrees: list[worktree_mod.WorktreeStatus]
+    vendors: list[vendor_mod.VendorStatus]
 
 
 def run_doctor(
@@ -91,6 +93,9 @@ def run_doctor(
                 )
             )
 
+    for level, category, message in vendor_mod.check_vendors_for_doctor(root, fetch_behind=True):
+        report.issues.append(DoctorIssue(level, category, message))
+
     if not report.issues:
         report.issues.append(DoctorIssue("info", "general", "所有检查通过"))
     return report
@@ -101,6 +106,7 @@ def apply_all(root: Path) -> ApplyReport:
         skip=skip_mod.apply_all(root),
         links=link_mod.apply_links(root),
         worktrees=worktree_mod.apply_worktrees(root),
+        vendors=vendor_mod.apply_vendors(root),
     )
 
 

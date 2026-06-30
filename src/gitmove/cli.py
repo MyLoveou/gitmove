@@ -29,6 +29,7 @@ from gitmove.registry import (
 from gitmove.repo_context import RepoContextError, resolve_repo_root
 from gitmove import skip as skip_mod
 from gitmove.sync import check_sync, default_chooser, sync_pull
+from gitmove import vendor as vendor_mod
 from gitmove import worktree as worktree_mod
 
 _CURRENT_REPO_OPT: str | None = None
@@ -45,6 +46,7 @@ config_app = typer.Typer(help="Import and export gitmove.toml configuration.")
 sync_app = typer.Typer(help="Check and pull remote changes for skip-worktree paths.")
 projects_app = typer.Typer(help="Manage registered Git repositories.")
 projects_sync_app = typer.Typer(help="Sync skip-worktree paths across projects.")
+vendor_app = typer.Typer(help="Upstream Git vendor (cache clone + whole-repo link).")
 console = Console()
 
 
@@ -115,6 +117,9 @@ def apply_cmd() -> None:
 
     console.print("\n[bold]worktrees[/bold]")
     _print_worktree_table(report.worktrees)
+
+    console.print("\n[bold]vendors[/bold]")
+    _print_vendor_table(report.vendors)
 
 
 @app.command("doctor")
@@ -595,6 +600,120 @@ def projects_sync_pull_cmd(
         raise typer.Exit(1)
 
 
+@vendor_app.command("add")
+def vendor_add_cmd(
+    repo_path: str = typer.Argument(..., help="Mount path inside the business repository."),
+    source_url: str = typer.Option(..., "--from", help="Upstream Git clone URL."),
+    name: Optional[str] = typer.Option(None, "--name", help="Vendor name (TOML key)."),
+    source_ref: str = typer.Option("main", "--ref", help="Upstream branch/tag."),
+    cache: Optional[str] = typer.Option(None, "--cache", help="Local cache directory."),
+    link_type: Optional[str] = typer.Option(None, "--type", "-t", help="junction or symlink."),
+    migrate: bool = typer.Option(False, "--migrate", "-m", help="Move existing directory into cache."),
+) -> None:
+    """Add an upstream vendor (clone cache + whole-repo link)."""
+    root = _root()
+    try:
+        entry = vendor_mod.add_vendor(
+            root,
+            repo_path,
+            source_url=source_url,
+            name=name,
+            source_ref=source_ref,
+            cache_path=cache,
+            link_type=resolve_link_type(link_type),
+            migrate=migrate,
+        )
+    except (vendor_mod.VendorError, FileExistsError, RuntimeError, ValueError) as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1) from exc
+    console.print(
+        f"[green]Vendor added[/green] {entry.name}: {entry.repo_path} -> {entry.cache_path}"
+    )
+
+
+@vendor_app.command("list")
+def vendor_list_cmd() -> None:
+    """List configured vendors."""
+    _print_vendor_table(vendor_mod.list_vendors(_root()))
+
+
+@vendor_app.command("status")
+def vendor_status_cmd(
+    name_or_path: Optional[str] = typer.Argument(None, help="Vendor name or repo_path."),
+    fetch: bool = typer.Option(True, "--fetch/--no-fetch", help="Fetch before status."),
+) -> None:
+    """Show vendor cache and link status."""
+    root = _root()
+    entries = vendor_mod.list_vendors(root)
+    targets = entries if name_or_path is None else [e for e in entries if e.name == name_or_path or e.repo_path == name_or_path]
+    if name_or_path and not targets:
+        console.print(f"[red]Vendor not found: {name_or_path}[/red]")
+        raise typer.Exit(1)
+    for entry in targets:
+        result = vendor_mod.vendor_status(root, entry.name, fetch=fetch)
+        console.print(f"{entry.name}: {result.message}")
+
+
+@vendor_app.command("sync")
+def vendor_sync_cmd(
+    name_or_path: Optional[str] = typer.Argument(None, help="Vendor name or repo_path."),
+    all_vendors: bool = typer.Option(False, "--all", help="Sync all vendors."),
+    fetch: bool = typer.Option(True, "--fetch/--no-fetch", help="Fetch before sync."),
+) -> None:
+    """Fast-forward sync vendor cache from upstream."""
+    root = _root()
+    had_errors = False
+    if all_vendors:
+        results = vendor_mod.sync_all_vendors(root, fetch=fetch)
+        for item in results:
+            if item.ok and item.updated:
+                console.print(
+                    f"[green]{item.name}[/green] {item.old_commit[:7]} -> {item.new_commit[:7]}"
+                )
+            elif item.ok:
+                console.print(f"[green]{item.name}[/green] already up to date")
+            else:
+                had_errors = True
+                console.print(f"[red]{item.name}[/red] {item.message}")
+    else:
+        if not name_or_path:
+            console.print("[red]Provide vendor name/path or use --all.[/red]")
+            raise typer.Exit(1)
+        try:
+            result = vendor_mod.sync_vendor(root, name_or_path, fetch=fetch)
+        except vendor_mod.VendorError as exc:
+            console.print(f"[red]{exc}[/red]")
+            raise typer.Exit(1) from exc
+        if result.updated:
+            old = (result.old_commit or "")[:7]
+            new = (result.new_commit or "")[:7]
+            console.print(f"[green]Synced[/green] {old} -> {new}")
+        else:
+            console.print("[green]Already up to date.[/green]")
+    if had_errors:
+        raise typer.Exit(1)
+
+
+@vendor_app.command("remove")
+def vendor_remove_cmd(
+    name_or_path: str = typer.Argument(..., help="Vendor name or repo_path."),
+    purge_cache: bool = typer.Option(False, "--purge-cache", help="Delete cache directory."),
+    keep_skip: bool = typer.Option(True, "--keep-skip/--no-keep-skip", help="Keep skip-worktree paths."),
+) -> None:
+    """Remove a vendor link (and optionally cache / skip entries)."""
+    try:
+        vendor_mod.remove_vendor(
+            _root(),
+            name_or_path,
+            purge_cache=purge_cache,
+            keep_skip=keep_skip,
+        )
+    except vendor_mod.VendorError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1) from exc
+    console.print(f"[green]Vendor removed[/green] {name_or_path}")
+
+
 @app.command("gui")
 def gui_cmd(
     repo: Optional[str] = typer.Option(None, "--repo", "-r", help="Git repository path."),
@@ -658,6 +777,26 @@ def _print_worktree_table(items: list) -> None:
     console.print(table)
 
 
+def _print_vendor_table(items: list) -> None:
+    table = Table(show_header=True, header_style="bold")
+    table.add_column("Name")
+    table.add_column("Repo path")
+    table.add_column("URL")
+    table.add_column("Ref")
+    table.add_column("Link OK")
+    if not items:
+        table.add_row("—", "—", "—", "—", "—")
+    for item in items:
+        table.add_row(
+            item.name,
+            item.repo_path,
+            item.source_url,
+            item.source_ref,
+            "yes" if item.link_ok else "no",
+        )
+    console.print(table)
+
+
 app.add_typer(skip_app, name="skip")
 app.add_typer(link_app, name="link")
 app.add_typer(worktree_app, name="worktree")
@@ -665,6 +804,7 @@ app.add_typer(config_app, name="config")
 app.add_typer(sync_app, name="sync")
 projects_app.add_typer(projects_sync_app, name="sync")
 app.add_typer(projects_app, name="projects")
+app.add_typer(vendor_app, name="vendor")
 
 
 if __name__ == "__main__":

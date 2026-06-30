@@ -82,6 +82,20 @@ def ls_tracked_files(root: Path) -> set[str]:
     return tracked
 
 
+def ls_tracked_under_prefix(root: Path, prefix: str) -> list[str]:
+    """Return tracked paths under a repo-relative prefix (directory or file)."""
+    normalized = prefix.replace("\\", "/").strip().strip("/")
+    if not normalized:
+        return sorted(ls_tracked_files(root))
+    tracked = ls_tracked_files(root)
+    prefix_slash = f"{normalized}/"
+    return sorted(
+        path
+        for path in tracked
+        if path == normalized or path.startswith(prefix_slash)
+    )
+
+
 def update_index_skip(root: Path, path: str, *, skip: bool) -> None:
     flag = "--skip-worktree" if skip else "--no-skip-worktree"
     run_git("update-index", flag, path, cwd=root)

@@ -26,11 +26,23 @@ class WorktreeEntry:
 
 
 @dataclass
+class VendorEntry:
+    name: str
+    repo_path: str
+    source_url: str
+    source_ref: str = "main"
+    cache_path: str = ""
+    link_type: str = "junction"
+    auto_skip_tracked: bool = True
+
+
+@dataclass
 class GitMoveConfig:
     skip_paths: list[str] = field(default_factory=list)
     external_base: str | None = None
     links: list[LinkEntry] = field(default_factory=list)
     worktrees: list[WorktreeEntry] = field(default_factory=list)
+    vendors: list[VendorEntry] = field(default_factory=list)
 
     @classmethod
     def load(cls, path: Path) -> GitMoveConfig:
@@ -74,6 +86,26 @@ class GitMoveConfig:
                             branch=value.get("branch"),
                         )
                     )
+
+        vendors = data.get("vendors", {})
+        if isinstance(vendors, dict):
+            for name, value in vendors.items():
+                if not isinstance(value, dict):
+                    continue
+                cfg.vendors.append(
+                    VendorEntry(
+                        name=name,
+                        repo_path=normalize_rel(value.get("repo_path", "")),
+                        source_url=value.get("source_url", ""),
+                        source_ref=value.get("source_ref", "main") or "main",
+                        cache_path=value.get("cache_path", ""),
+                        link_type=value.get("link_type", "junction") or "junction",
+                        auto_skip_tracked=bool(value.get("auto_skip_tracked", True)),
+                    )
+                )
+        for vendor in cfg.vendors:
+            if not vendor.repo_path:
+                raise ValueError(f"Invalid vendor {vendor.name!r}: repo_path must not be empty")
         return cfg
 
     def save(self, path: Path) -> None:
@@ -93,6 +125,17 @@ class GitMoveConfig:
                     "branch": wt.branch or "",
                 }
                 for wt in self.worktrees
+            },
+            "vendors": {
+                vendor.name: {
+                    "repo_path": vendor.repo_path,
+                    "source_url": vendor.source_url,
+                    "source_ref": vendor.source_ref,
+                    "cache_path": vendor.cache_path,
+                    "link_type": vendor.link_type,
+                    "auto_skip_tracked": vendor.auto_skip_tracked,
+                }
+                for vendor in self.vendors
             },
         }
         path.parent.mkdir(parents=True, exist_ok=True)

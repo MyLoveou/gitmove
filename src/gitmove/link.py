@@ -82,8 +82,10 @@ def add_link(
 ) -> LinkEntry:
     repo_path = normalize_rel(repo_rel)
     resolve_repo_path(root, repo_path)
-    resolved_type = resolve_link_type(link_type)
     cfg = load_config(root)
+    if any(vendor.repo_path == repo_path for vendor in cfg.vendors):
+        raise FileExistsError(f"repo_path is managed by vendor: {repo_path}")
+    resolved_type = resolve_link_type(link_type)
     base = resolve_external_base(cfg, root)
 
     if external:
@@ -166,6 +168,8 @@ def remove_link(root: Path, repo_rel: str, *, keep_external: bool = True) -> Non
     repo_path = normalize_rel(repo_rel)
     resolve_repo_path(root, repo_path)
     cfg = load_config(root)
+    if any(vendor.repo_path == repo_path for vendor in cfg.vendors):
+        raise FileExistsError(f"repo_path is managed by vendor: {repo_path}")
     entry = next((l for l in cfg.links if l.repo_path == repo_path), None)
     if not entry:
         raise KeyError(f"Link not in config: {repo_path}")

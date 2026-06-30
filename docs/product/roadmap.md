@@ -8,7 +8,7 @@
 | **0.2.x** | 配置迁移 + 远程 sync | 已实现 | [gitmove-config-sync](../requirements/features/gitmove-config-sync.md) |
 | **0.3.0** | 多项目 CLI | 已实现 | [gitmove-multi-project](../requirements/features/gitmove-multi-project.md) |
 | **0.3.1** | 多项目 GUI 侧栏 | 已实现 | 同上 |
-| **0.4.0** | 上游 Vendor | 待实现 | [gitmove-vendor](../requirements/features/gitmove-vendor.md) |
+| **0.4.0** | 上游 Vendor | 已实现 | [gitmove-vendor](../requirements/features/gitmove-vendor.md) |
 | **0.5.0** | 占位 | 未规划 | vendor 模板、子目录 link、shallow clone |
 
 ## 0.2.0 — 核心能力（已完成）

@@ -28,7 +28,7 @@ docs/
 | [gitmove-core](requirements/features/gitmove-core.md) | 0.2.0 | **已定稿 · 已实现** | skip / link / worktree / CLI / GUI |
 | [gitmove-config-sync](requirements/features/gitmove-config-sync.md) | 0.2.x | **已定稿 · 已实现** | config import/export、sync check/pull |
 | [gitmove-multi-project](requirements/features/gitmove-multi-project.md) | 0.3.x | **已定稿 · 已实现** | 项目注册表、批量操作、`-C` |
-| [gitmove-vendor](requirements/features/gitmove-vendor.md) | 0.4.0 | **已定稿 · 待实现** | 上游整仓 link、vendor sync |
+| [gitmove-vendor](requirements/features/gitmove-vendor.md) | 0.4.0 | **已定稿 · 已实现** | 上游整仓 link、vendor sync |
 
 ## 配置存储（两层模型）
 

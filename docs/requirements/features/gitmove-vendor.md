@@ -208,15 +208,15 @@ gitmove vendor remove <repo_path|vendor-name> [--purge-cache] [--keep-skip]
 
 ## 验收标准
 
-- [ ] `vendor add` 整仓 clone + link + 追踪路径批量 skip
-- [ ] **拒绝**自动改挂替代路径；`repo_path` 严格按用户指定
-- [ ] `vendor sync` 仅 FF；冲突/非 FF **中止并提示**，无自动 merge
-- [ ] `vendor sync --all` 部分失败时报告汇总
-- [ ] `apply` / `doctor` 覆盖 vendor
-- [ ] `repo_path` 已存在普通目录时无 `--migrate` 报错
-- [ ] Windows `CREATE_NO_WINDOW` 子进程（与 gitmove 0.2.x 一致）
-- [ ] 单元 + 集成测试；`vendor.py` 覆盖率纳入门禁 ≥ 80%
-- [ ] README「上游依赖 Vendor」章节含多场景示例
+- [x] `vendor add` 整仓 clone + link + 追踪路径批量 skip
+- [x] **拒绝**自动改挂替代路径；`repo_path` 严格按用户指定
+- [x] `vendor sync` 仅 FF；冲突/非 FF **中止并提示**，无自动 merge
+- [x] `vendor sync --all` 部分失败时报告汇总
+- [x] `apply` / `doctor` 覆盖 vendor
+- [x] `repo_path` 已存在普通目录时无 `--migrate` 报错
+- [x] Windows `CREATE_NO_WINDOW` 子进程（与 gitmove 0.2.x 一致）
+- [x] 单元 + 集成测试；`vendor.py` 覆盖率纳入门禁 ≥ 80%
+- [x] README「上游依赖 Vendor」章节含多场景示例
 
 ## 验证
 

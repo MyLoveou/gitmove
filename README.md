@@ -85,6 +85,27 @@ gitmove projects sync pull --all    # 先问项目，再问每个 skip 文件
 
 环境变量 `GITMOVE_REPO` 与 `-C` 类似，可作为默认仓库路径或别名（`-C` 优先级更高）。
 
+## 上游依赖 Vendor（v0.4）
+
+从其他 Git 仓库整仓取用到业务仓指定路径（如已追踪的 `.cursor`），配置仍在 `.git/gitmove.toml`。缓存目录默认 `~/gitmove-vendor/<name>/`，测试可用 `GITMOVE_VENDOR_HOME` 覆盖。
+
+```bash
+# 未追踪目录
+gitmove vendor add tools --from https://github.com/org/tools.git --name company-tools
+gitmove vendor sync company-tools
+
+# 已追踪 .cursor（需迁移本地目录）
+gitmove vendor add .cursor \
+  --from https://github.com/MyLoveou/cursor-project-spec \
+  --name cursor-spec --migrate
+gitmove vendor list
+gitmove vendor status cursor-spec
+gitmove vendor sync --all
+gitmove doctor
+```
+
+`vendor sync` 仅在 cache 内 fast-forward pull；cache 脏或非 FF 时中止。与 `gitmove sync pull`（业务仓远程）独立。
+
 ## 多平台说明
 
 | 平台 | 默认链接类型 | 说明 |
@@ -116,6 +137,7 @@ gitmove link add tools/personal --type symlink
 | `gitmove projects doctor/apply [--all]` | 单仓或批量健康检查 / 应用 |
 | `gitmove projects sync check/pull [--all]` | 单仓或批量 sync |
 | `gitmove -C <path\|alias>` | 全局指定操作目标仓库 |
+| `gitmove vendor add/list/status/sync/remove` | 上游 Git 整仓 link |
 
 ## 配置示例
 

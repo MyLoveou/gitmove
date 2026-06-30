@@ -19,7 +19,7 @@
 │  · config_io   配置 import/export                             │
 │  · sync        业务仓 skip 文件与远程 reconcile                │
 │  · registry    多项目注册表（0.3）                        │
-│  · vendor      上游仓库 → cache → link（规划 0.4）             │
+│  · vendor      上游仓库 → cache → link（0.4）             │
 └────────────────────────────┬────────────────────────────────┘
                              │
 ┌────────────────────────────▼────────────────────────────────┐
@@ -127,7 +127,7 @@ flowchart LR
 | `skip` / `link` / `worktree` | 各模块 | 核心策略 |
 | `gui/app` | `gui/app.py` | 可视化 |
 | `registry` | `registry.py` | 多项目注册表 |
-| `vendor`（规划） | `vendor.py` | 上游 clone/link/sync |
+| `vendor` | `vendor.py` | 上游 clone/link/sync |
 
 ## 相关文档
 

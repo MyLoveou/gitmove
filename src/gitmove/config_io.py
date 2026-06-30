@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from gitmove.config import GitMoveConfig, LinkEntry, WorktreeEntry, config_path_for_repo, resolve_repo_path
+from gitmove.config import GitMoveConfig, LinkEntry, VendorEntry, WorktreeEntry, config_path_for_repo, resolve_repo_path
 
 EXTERNAL_BASE_VAR = "${EXTERNAL_BASE}"
 
@@ -30,11 +30,20 @@ def merge_configs(target: GitMoveConfig, incoming: GitMoveConfig) -> GitMoveConf
         worktrees_by_name.setdefault(wt.name, wt)
     worktrees = sorted(worktrees_by_name.values(), key=lambda item: item.name)
 
+    vendors_by_name = {vendor.name: vendor for vendor in target.vendors}
+    vendor_paths = {vendor.repo_path for vendor in target.vendors}
+    for vendor in incoming.vendors:
+        vendors_by_name.setdefault(vendor.name, vendor)
+        vendor_paths.add(vendor.repo_path)
+    vendors = sorted(vendors_by_name.values(), key=lambda item: item.name)
+    links = [link for link in links if link.repo_path not in vendor_paths]
+
     return GitMoveConfig(
         skip_paths=skip_paths,
         external_base=external_base,
         links=links,
         worktrees=worktrees,
+        vendors=vendors,
     )
 
 
@@ -79,6 +88,7 @@ def _apply_path_substitutions(
         external_base=external_base,
         links=links,
         worktrees=worktrees,
+        vendors=list(cfg.vendors),
     )
 
 

@@ -1,0 +1,452 @@
+"""Upstream Git vendor: cache clone + whole-repo link into business repository."""
+
+from __future__ import annotations
+
+import os
+import re
+import shutil
+import stat
+from dataclasses import dataclass
+from pathlib import Path
+
+from gitmove import git
+from gitmove.config import VendorEntry, normalize_rel, resolve_repo_path
+from gitmove import link as link_mod
+from gitmove.platform_util import resolve_link_type
+from gitmove.skip import load_config, save_config
+
+VENDOR_NAME_PATTERN = re.compile(r"^[a-zA-Z0-9_-]{1,64}$")
+
+
+class VendorError(RuntimeError):
+    """Invalid vendor operation."""
+
+
+@dataclass
+class VendorStatus:
+    name: str
+    repo_path: str
+    source_url: str
+    source_ref: str
+    cache_path: Path
+    link_ok: bool
+    cache_exists: bool
+
+
+@dataclass
+class VendorSyncResult:
+    name: str
+    ok: bool
+    updated: bool = False
+    old_commit: str | None = None
+    new_commit: str | None = None
+    message: str | None = None
+
+
+def _purge_cache_dir(cache: Path) -> None:
+    if not cache.exists():
+        return
+
+    def _on_rm_error(func, path, exc_info) -> None:  # type: ignore[no-untyped-def]
+        try:
+            os.chmod(path, stat.S_IWRITE)
+            func(path)
+        except OSError:
+            raise exc_info[1]  # noqa: B904
+
+    shutil.rmtree(cache, onerror=_on_rm_error)
+
+
+def vendor_cache_home() -> Path:
+    override = os.environ.get("GITMOVE_VENDOR_HOME")
+    if override:
+        return Path(override).expanduser().resolve()
+    return Path.home() / "gitmove-vendor"
+
+
+def default_cache_path(vendor_name: str) -> Path:
+    return vendor_cache_home() / vendor_name
+
+
+def default_vendor_name(repo_path: str) -> str:
+    cleaned = normalize_rel(repo_path).replace("/", "-").replace(".", "-").strip("-")
+    name = cleaned or "vendor"
+    if not VENDOR_NAME_PATTERN.match(name):
+        name = re.sub(r"[^a-zA-Z0-9_-]", "-", name).strip("-") or "vendor"
+    return name[:64]
+
+
+def _validate_vendor_name(name: str) -> None:
+    if not VENDOR_NAME_PATTERN.match(name):
+        raise VendorError(f"Invalid vendor name {name!r}: use [a-zA-Z0-9_-], 1-64 chars")
+
+
+def _find_vendor(cfg, name_or_path: str) -> VendorEntry | None:
+    text = normalize_rel(name_or_path)
+    for entry in cfg.vendors:
+        if entry.name == name_or_path or entry.repo_path == text:
+            return entry
+    return None
+
+
+def _resolve_cache_path(entry: VendorEntry) -> Path:
+    if entry.cache_path:
+        return Path(entry.cache_path).expanduser().resolve()
+    return default_cache_path(entry.name)
+
+
+def _is_correct_vendor_link(root: Path, entry: VendorEntry, cache: Path) -> bool:
+    link_path = root / entry.repo_path
+    if not link_mod._is_reparse_point(link_path):
+        return False
+    try:
+        return link_path.resolve() == cache.resolve()
+    except OSError:
+        return False
+
+
+def _clone_cache(cache: Path, source_url: str, source_ref: str) -> None:
+    if cache.exists():
+        return
+    cache.parent.mkdir(parents=True, exist_ok=True)
+    result = git.run_git(
+        "clone",
+        "--branch",
+        source_ref,
+        "--single-branch",
+        source_url,
+        str(cache),
+        check=False,
+    )
+    if result.returncode != 0:
+        if cache.exists():
+            _purge_cache_dir(cache)
+        stderr = result.stderr.strip() or result.stdout.strip() or "git clone failed"
+        raise VendorError(stderr)
+
+
+def _commit_cache_changes(cache: Path, message: str = "gitmove vendor migrate") -> None:
+    if not _cache_dirty(cache):
+        return
+    git.run_git("add", "-A", cwd=cache)
+    result = git.run_git("commit", "-m", message, cwd=cache, check=False)
+    if result.returncode != 0:
+        stderr = result.stderr.strip() or result.stdout.strip() or "cache commit failed"
+        raise VendorError(stderr)
+
+
+def _migrate_repo_path_to_cache(link_path: Path, cache: Path) -> None:
+    if not link_path.exists():
+        return
+    if link_mod._is_reparse_point(link_path):
+        return
+    cache.parent.mkdir(parents=True, exist_ok=True)
+    if link_path.is_dir():
+        if cache.exists():
+            shutil.copytree(link_path, cache, dirs_exist_ok=True)
+            shutil.rmtree(link_path)
+        else:
+            shutil.copytree(link_path, cache, dirs_exist_ok=False)
+            shutil.rmtree(link_path)
+    else:
+        cache.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(link_path), str(cache / link_path.name))
+
+
+def _apply_skip_for_vendor(root: Path, entry: VendorEntry) -> None:
+    if not entry.auto_skip_tracked:
+        return
+    cfg = load_config(root)
+    tracked = git.ls_tracked_under_prefix(root, entry.repo_path)
+    changed = False
+    for path in tracked:
+        git.update_index_skip(root, path, skip=True)
+        if path not in cfg.skip_paths:
+            cfg.skip_paths.append(path)
+            changed = True
+    if changed:
+        save_config(root, cfg)
+
+
+def add_vendor(
+    root: Path,
+    repo_rel: str,
+    *,
+    source_url: str,
+    name: str | None = None,
+    source_ref: str = "main",
+    cache_path: str | None = None,
+    link_type: str | None = None,
+    migrate: bool = False,
+    auto_skip_tracked: bool = True,
+) -> VendorEntry:
+    repo_path = normalize_rel(repo_rel)
+    resolve_repo_path(root, repo_path)
+    cfg = load_config(root)
+
+    if any(link.repo_path == repo_path for link in cfg.links):
+        raise VendorError(f"repo_path already has external link configured: {repo_path}")
+    if any(vendor.repo_path == repo_path for vendor in cfg.vendors):
+        raise VendorError(f"repo_path already has vendor configured: {repo_path}")
+
+    vendor_name = name or default_vendor_name(repo_path)
+    _validate_vendor_name(vendor_name)
+    if any(vendor.name == vendor_name for vendor in cfg.vendors):
+        raise VendorError(f"Vendor name already exists: {vendor_name}")
+
+    resolved_type = resolve_link_type(link_type)
+    cache = (
+        Path(cache_path).expanduser().resolve()
+        if cache_path
+        else default_cache_path(vendor_name)
+    )
+    link_path = root / repo_path
+
+    if link_path.exists() and not link_mod._is_reparse_point(link_path) and not migrate:
+        raise FileExistsError(
+            f"{repo_path} exists and is not a link. Use --migrate to move content to cache."
+        )
+
+    _clone_cache(cache, source_url, source_ref)
+
+    if link_path.exists() and not link_mod._is_reparse_point(link_path):
+        _migrate_repo_path_to_cache(link_path, cache)
+        _commit_cache_changes(cache)
+
+    entry = VendorEntry(
+        name=vendor_name,
+        repo_path=repo_path,
+        source_url=source_url,
+        source_ref=source_ref,
+        cache_path=str(cache).replace("\\", "/"),
+        link_type=resolved_type,
+        auto_skip_tracked=auto_skip_tracked,
+    )
+
+    try:
+        if not _is_correct_vendor_link(root, entry, cache):
+            if link_path.exists() and link_mod._is_reparse_point(link_path):
+                link_mod._remove_link_path(link_path)
+            if not link_path.exists():
+                link_mod.create_link(link_path, cache, resolved_type)
+        cfg.vendors.append(entry)
+        save_config(root, cfg)
+        _apply_skip_for_vendor(root, entry)
+    except Exception:
+        cfg.vendors = [vendor for vendor in cfg.vendors if vendor.name != vendor_name]
+        save_config(root, cfg)
+        if link_path.exists() and link_mod._is_reparse_point(link_path):
+            link_mod._remove_link_path(link_path)
+        raise
+
+    return entry
+
+
+def apply_vendors(root: Path) -> list[VendorStatus]:
+    cfg = load_config(root)
+    statuses: list[VendorStatus] = []
+    for entry in cfg.vendors:
+        cache = _resolve_cache_path(entry)
+        if not cache.exists():
+            _clone_cache(cache, entry.source_url, entry.source_ref)
+        link_path = root / entry.repo_path
+        if not _is_correct_vendor_link(root, entry, cache):
+            if link_path.exists() and link_mod._is_reparse_point(link_path):
+                link_mod._remove_link_path(link_path)
+            if not link_path.exists():
+                link_mod.create_link(link_path, cache, entry.link_type)
+        _apply_skip_for_vendor(root, entry)
+        statuses.append(_status_for_entry(root, entry))
+    return statuses
+
+
+def list_vendors(root: Path) -> list[VendorStatus]:
+    cfg = load_config(root)
+    return [_status_for_entry(root, entry) for entry in cfg.vendors]
+
+
+def _status_for_entry(root: Path, entry: VendorEntry) -> VendorStatus:
+    cache = _resolve_cache_path(entry)
+    return VendorStatus(
+        name=entry.name,
+        repo_path=entry.repo_path,
+        source_url=entry.source_url,
+        source_ref=entry.source_ref,
+        cache_path=cache,
+        link_ok=_is_correct_vendor_link(root, entry, cache),
+        cache_exists=cache.exists(),
+    )
+
+
+def _cache_head(cache: Path) -> str:
+    result = git.run_git("rev-parse", "HEAD", cwd=cache)
+    return result.stdout.strip()
+
+
+def _cache_dirty(cache: Path) -> bool:
+    result = git.run_git("status", "--porcelain", cwd=cache, check=False)
+    return bool(result.stdout.strip())
+
+
+def _remote_ref(entry: VendorEntry) -> str:
+    return f"origin/{entry.source_ref}"
+
+
+def vendor_status(root: Path, name_or_path: str, *, fetch: bool = True) -> VendorSyncResult:
+    cfg = load_config(root)
+    entry = _find_vendor(cfg, name_or_path)
+    if entry is None:
+        raise VendorError(f"Vendor not found: {name_or_path}")
+    cache = _resolve_cache_path(entry)
+    if not cache.exists():
+        return VendorSyncResult(entry.name, ok=False, message="cache missing")
+
+    if fetch:
+        fetch_result = git.run_git("fetch", "origin", cwd=cache, check=False)
+        if fetch_result.returncode != 0:
+            return VendorSyncResult(
+                entry.name,
+                ok=False,
+                message=fetch_result.stderr.strip() or "git fetch failed",
+            )
+
+    behind = git.run_git(
+        "rev-list",
+        "--count",
+        f"HEAD..{_remote_ref(entry)}",
+        cwd=cache,
+        check=False,
+    )
+    dirty = _cache_dirty(cache)
+    link_ok = _is_correct_vendor_link(root, entry, cache)
+    parts = [f"commit={_cache_head(cache)}"]
+    if behind.returncode == 0 and behind.stdout.strip().isdigit():
+        count = int(behind.stdout.strip())
+        if count:
+            parts.append(f"behind={count}")
+    if dirty:
+        parts.append("dirty")
+    if not link_ok:
+        parts.append("link_broken")
+    return VendorSyncResult(entry.name, ok=link_ok and not dirty, message="; ".join(parts))
+
+
+def sync_vendor(root: Path, name_or_path: str, *, fetch: bool = True) -> VendorSyncResult:
+    cfg = load_config(root)
+    entry = _find_vendor(cfg, name_or_path)
+    if entry is None:
+        raise VendorError(f"Vendor not found: {name_or_path}")
+    cache = _resolve_cache_path(entry)
+    if not cache.exists():
+        raise VendorError(f"Cache missing for vendor {entry.name}: {cache}")
+
+    if _cache_dirty(cache):
+        raise VendorError(f"Cache has uncommitted changes: {cache}")
+
+    old_commit = _cache_head(cache)
+    if fetch:
+        fetch_result = git.run_git("fetch", "origin", cwd=cache, check=False)
+        if fetch_result.returncode != 0:
+            raise VendorError(fetch_result.stderr.strip() or "git fetch failed")
+
+    merge = git.run_git("merge", "--ff-only", _remote_ref(entry), cwd=cache, check=False)
+    if merge.returncode != 0:
+        stderr = merge.stderr.strip() or merge.stdout.strip() or "merge --ff-only failed"
+        raise VendorError(stderr)
+
+    new_commit = _cache_head(cache)
+    return VendorSyncResult(
+        entry.name,
+        ok=True,
+        updated=old_commit != new_commit,
+        old_commit=old_commit,
+        new_commit=new_commit,
+    )
+
+
+def sync_all_vendors(root: Path, *, fetch: bool = True) -> list[VendorSyncResult]:
+    results: list[VendorSyncResult] = []
+    for entry in load_config(root).vendors:
+        try:
+            results.append(sync_vendor(root, entry.name, fetch=fetch))
+        except VendorError as exc:
+            results.append(VendorSyncResult(entry.name, ok=False, message=str(exc)))
+    return results
+
+
+def remove_vendor(
+    root: Path,
+    name_or_path: str,
+    *,
+    purge_cache: bool = False,
+    keep_skip: bool = True,
+) -> None:
+    cfg = load_config(root)
+    entry = _find_vendor(cfg, name_or_path)
+    if entry is None:
+        raise VendorError(f"Vendor not found: {name_or_path}")
+
+    link_path = root / entry.repo_path
+    if link_path.exists() and link_mod._is_reparse_point(link_path):
+        link_mod._remove_link_path(link_path)
+
+    cache = _resolve_cache_path(entry)
+    if purge_cache and cache.exists():
+        _purge_cache_dir(cache)
+
+    if not keep_skip and entry.auto_skip_tracked:
+        tracked = git.ls_tracked_under_prefix(root, entry.repo_path)
+        for path in tracked:
+            if git.is_tracked(root, path):
+                git.update_index_skip(root, path, skip=False)
+        cfg = load_config(root)
+        cfg.skip_paths = [p for p in cfg.skip_paths if p not in tracked]
+
+    cfg.vendors = [vendor for vendor in cfg.vendors if vendor.name != entry.name]
+    save_config(root, cfg)
+
+
+def check_vendors_for_doctor(root: Path, *, fetch_behind: bool = False) -> list[tuple[str, str, str]]:
+    """Return (level, category, message) tuples for doctor."""
+    issues: list[tuple[str, str, str]] = []
+    cfg = load_config(root)
+    skip_active, _ = git.ls_files_index(root)
+
+    for entry in cfg.vendors:
+        cache = _resolve_cache_path(entry)
+        link_path = root / entry.repo_path
+        if not cache.exists():
+            issues.append(("error", "vendor", f"vendor cache 缺失: {entry.name} ({cache})"))
+        if not link_path.exists():
+            issues.append(("error", "vendor", f"vendor 链接缺失: {entry.repo_path}"))
+        elif not _is_correct_vendor_link(root, entry, cache):
+            issues.append(("error", "vendor", f"vendor 链接目标不是 cache: {entry.repo_path}"))
+
+        if entry.auto_skip_tracked:
+            for path in git.ls_tracked_under_prefix(root, entry.repo_path):
+                if path not in skip_active:
+                    issues.append(
+                        ("error", "vendor", f"vendor 追踪路径未 skip: {path}")
+                    )
+
+        if fetch_behind and cache.exists():
+            fetch_result = git.run_git("fetch", "origin", cwd=cache, check=False)
+            if fetch_result.returncode == 0:
+                behind = git.run_git(
+                    "rev-list",
+                    "--count",
+                    f"HEAD..{_remote_ref(entry)}",
+                    cwd=cache,
+                    check=False,
+                )
+                if behind.returncode == 0 and behind.stdout.strip().isdigit():
+                    count = int(behind.stdout.strip())
+                    if count > 0:
+                        issues.append(
+                            (
+                                "warn",
+                                "vendor",
+                                f"vendor {entry.name} 落后上游 {count} 个 commit",
+                            )
+                        )
+    return issues
