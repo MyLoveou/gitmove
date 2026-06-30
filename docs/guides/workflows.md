@@ -61,7 +61,7 @@ gitmove config import --from-repo /old/path/to/my-app \
 
 ---
 
-## 5. 多项目日常巡检（规划 0.3）
+## 5. 多项目日常巡检
 
 ```bash
 gitmove projects add . --alias my-app --group work
@@ -81,7 +81,7 @@ gitmove -C other doctor
 
 ---
 
-## 6. 从上游 Git 仓取用目录（规划 0.4 · Vendor）
+## 6. 从上游 Git 仓取用目录（Vendor）
 
 ### 场景 A：`.cursor` 未被业务仓追踪
 
@@ -129,10 +129,10 @@ gitmove vendor add tools \
 | 已追踪小文件本地改不提交 | skip-worktree |
 | 整目录放盘外、自己管内容 | link |
 | 同仓另一分支/目录开发 | worktree |
-| 目录内容来自**另一个 Git 仓**、可 pull 更新 | vendor（规划） |
+| 目录内容来自**另一个 Git 仓**、可 pull 更新 | vendor |
 | 配置换机迁移 | config import/export |
 | 业务仓远程改了 skip 文件 | sync pull |
-| 管多个业务仓 | projects（规划） |
+| 管多个业务仓 | projects |
 
 ---
 

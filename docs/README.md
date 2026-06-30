@@ -8,17 +8,21 @@
 docs/
 ├── README.md                 ← 本索引
 ├── design/
-│   └── overview.md           架构与能力关系
+│   ├── overview.md           架构与能力关系
+│   └── ai-integration.md     AI / MCP / Skill 集成设计
 ├── product/
 │   ├── roadmap.md            版本路线图
 │   └── competitive-analysis.md 竞品对比分析
 ├── guides/
+│   └── user-manual.md        使用说明书（推荐阅读）
 │   └── workflows.md          典型工作流与场景
 └── requirements/features/
     ├── gitmove-core.md       核心能力（v0.2.0，已实现）
     ├── gitmove-config-sync.md 配置导入导出与远程 sync（v0.2.x，已实现）
-    ├── gitmove-multi-project.md 多项目管理（v0.3.x，待实现）
-    └── gitmove-vendor.md     上游依赖 Vendor（v0.4.0，待实现）
+    ├── gitmove-multi-project.md 多项目管理（v0.3.x，已实现）
+    ├── gitmove-vendor.md     上游依赖 Vendor（v0.4.0，已实现）
+    └── gitmove-0.5-enhancements.md  0.5+ 高契合增强（已定稿）
+    └── gitmove-ai-integration.md    AI/MCP/Skill 集成（草案）
 ```
 
 ## 需求文档状态
@@ -29,6 +33,8 @@ docs/
 | [gitmove-config-sync](requirements/features/gitmove-config-sync.md) | 0.2.x | **已定稿 · 已实现** | config import/export、sync check/pull |
 | [gitmove-multi-project](requirements/features/gitmove-multi-project.md) | 0.3.x | **已定稿 · 已实现** | 项目注册表、批量操作、`-C` |
 | [gitmove-vendor](requirements/features/gitmove-vendor.md) | 0.4.0 | **已定稿 · 已实现** | 上游整仓 link、vendor sync |
+| [gitmove-0.5-enhancements](requirements/features/gitmove-0.5-enhancements.md) | 0.5.0 | **已定稿 · 已实现** | F13 错误引导、Vendor 模板/shallow/include、repair、GUI batch sync |
+| [gitmove-ai-integration](requirements/features/gitmove-ai-integration.md) | 0.6.0 | **草案 · 设计已完成** | MCP、Skill、CLI `--json` |
 
 ## 配置存储（两层模型）
 
@@ -43,7 +49,9 @@ docs/
 ## 快速跳转
 
 - 想了解整体设计 → [design/overview.md](design/overview.md)
+- 想看 AI/MCP 集成 → [design/ai-integration.md](design/ai-integration.md)
 - 想看版本计划 → [product/roadmap.md](product/roadmap.md)
 - 想看竞品对比 → [product/competitive-analysis.md](product/competitive-analysis.md)
-- 想看怎么用 → [guides/workflows.md](guides/workflows.md)
+- 想看怎么用 → [guides/user-manual.md](guides/user-manual.md)（**使用说明书**）
+- 想看场景示例 → [guides/workflows.md](guides/workflows.md)
 - 用户手册（安装、命令表）→ 仓库根目录 [README.md](../README.md)

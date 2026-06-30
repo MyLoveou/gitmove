@@ -57,6 +57,8 @@ description: >-
 | 需求/设计/开发/交付工作流、走流程 | `workflow-playbooks` | P0 |
 | 智能体模式、委派、并行、Handoff | `workflow-playbooks` → `workflows/agent-patterns.md` | P1 |
 | 改 .cursor | `agent-harness-construction` | P1 |
+| gitmove、skip-worktree、vendor、gitmove.toml | `gitmove-ops` | P1 |
+| 配置 gitmove MCP、mcp.json | `gitmove-mcp-setup` | P1 |
 
 ## 路径触发
 
@@ -71,6 +73,7 @@ description: >-
 | `frontend/**/*.vue` | `frontend-vue-dev`；大 UI 改 + `frontend-design-direction` |
 | `{DEPRECATED_API}` 引用 | **STOP** + `scope-check` |
 | `.cursor/**` | `agent-harness-construction` |
+| `docs/design/ai-integration.md` | `gitmove-ops` |
 
 ## 阶段触发
 

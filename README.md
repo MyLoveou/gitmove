@@ -16,7 +16,9 @@
 |------|------|
 | [docs/README.md](docs/README.md) | 文档索引与需求状态 |
 | [docs/design/overview.md](docs/design/overview.md) | 架构与能力关系 |
-| [docs/product/roadmap.md](docs/product/roadmap.md) | 版本路线图（0.3 多项目 · 0.4 Vendor） |
+| [docs/design/ai-integration.md](docs/design/ai-integration.md) | AI / MCP / Skill 集成设计（v0.6 规划） |
+| [docs/product/roadmap.md](docs/product/roadmap.md) | 版本路线图 |
+| [docs/guides/user-manual.md](docs/guides/user-manual.md) | **使用说明书**（安装、命令、场景） |
 | [docs/guides/workflows.md](docs/guides/workflows.md) | 典型工作流与场景选型 |
 
 ## 安装

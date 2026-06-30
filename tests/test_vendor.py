@@ -9,6 +9,7 @@ from unittest import mock
 import pytest
 
 from gitmove import git
+from gitmove.errors import GitMoveError
 from gitmove.doctor import init_repo, run_doctor
 from gitmove import link as link_mod
 from gitmove import skip as skip_mod
@@ -69,7 +70,7 @@ def test_add_vendor_rejects_existing_dir_without_migrate(
     tools.mkdir()
     (tools / "local.txt").write_text("local", encoding="utf-8")
     upstream = _init_upstream(tmp_path)
-    with pytest.raises(FileExistsError, match="--migrate"):
+    with pytest.raises(GitMoveError, match="--migrate"):
         vendor_mod.add_vendor(git_repo, "tools", source_url=_upstream_url(upstream))
     assert not (vendor_home / "tools").exists()
 
@@ -92,7 +93,7 @@ def test_vendor_sync_aborts_non_ff(git_repo: Path, vendor_home: Path, tmp_path: 
     (upstream / "diverge.txt").write_text("d", encoding="utf-8")
     _git(upstream, "add", "diverge.txt")
     _git(upstream, "commit", "-m", "diverge")
-    with pytest.raises(vendor_mod.VendorError):
+    with pytest.raises(GitMoveError):
         vendor_mod.sync_vendor(git_repo, "tools")
 
 
@@ -144,7 +145,7 @@ def test_vendor_sync_aborts_on_dirty_cache(git_repo: Path, vendor_home: Path, tm
     entry = vendor_mod.add_vendor(git_repo, "tools", source_url=_upstream_url(upstream), name="tools")
     cache = Path(entry.cache_path)
     (cache / "dirty.txt").write_text("dirty", encoding="utf-8")
-    with pytest.raises(vendor_mod.VendorError, match="uncommitted"):
+    with pytest.raises(GitMoveError, match="uncommitted"):
         vendor_mod.sync_vendor(git_repo, "tools")
 
 
@@ -382,7 +383,7 @@ def test_sync_vendor_fetch_failure(git_repo: Path, vendor_home: Path, tmp_path: 
     ):
         run_git.return_value.returncode = 1
         run_git.return_value.stderr = "fetch failed"
-        with pytest.raises(vendor_mod.VendorError, match="fetch failed"):
+        with pytest.raises(GitMoveError, match="fetch failed"):
             vendor_mod.sync_vendor(git_repo, "tools", fetch=True)
 
 
@@ -408,3 +409,71 @@ def test_vendor_status_fetch_failure(git_repo: Path, vendor_home: Path, tmp_path
         result = vendor_mod.vendor_status(git_repo, "tools", fetch=True)
     assert result.ok is False
     assert result.message == "network down"
+
+
+def test_clone_cache_uses_depth_when_shallow(tmp_path: Path) -> None:
+    upstream = _init_upstream(tmp_path)
+    cache = tmp_path / "cache"
+    with mock.patch("gitmove.vendor.git.run_git") as run_git:
+        run_git.return_value.returncode = 0
+        vendor_mod._clone_cache(cache, _upstream_url(upstream), "main", shallow=True)
+    args = run_git.call_args[0]
+    assert "--depth" in args
+    assert "1" in args
+
+
+def test_add_vendor_include_paths_links_subdirectory(
+    git_repo: Path, vendor_home: Path, tmp_path: Path
+) -> None:
+    init_repo(git_repo)
+    upstream = _init_upstream(tmp_path)
+    sub = upstream / "pkg" / "inner"
+    sub.mkdir(parents=True)
+    (sub / "file.txt").write_text("x", encoding="utf-8")
+    _git(upstream, "add", "pkg/inner/file.txt")
+    _git(upstream, "commit", "-m", "add inner")
+    entry = vendor_mod.add_vendor(
+        git_repo,
+        "vendor-inner",
+        source_url=_upstream_url(upstream),
+        name="inner",
+        include_paths=["pkg/inner"],
+    )
+    link_path = git_repo / "vendor-inner"
+    assert link_mod._is_reparse_point(link_path)
+    assert (link_path / "file.txt").read_text(encoding="utf-8") == "x"
+    assert entry.include_paths == ["pkg/inner"]
+
+
+def test_add_vendor_migrate_include_paths_targets_subdirectory(
+    git_repo: Path, vendor_home: Path, tmp_path: Path
+) -> None:
+    init_repo(git_repo)
+    repo_path = git_repo / "vendor-inner"
+    repo_path.mkdir(parents=True)
+    (repo_path / "local.txt").write_text("local-only", encoding="utf-8")
+    _git(git_repo, "add", "vendor-inner/local.txt")
+    _git(git_repo, "commit", "-m", "track vendor-inner")
+
+    upstream = _init_upstream(tmp_path)
+    sub = upstream / "pkg" / "inner"
+    sub.mkdir(parents=True)
+    (sub / "upstream.txt").write_text("upstream", encoding="utf-8")
+    _git(upstream, "add", "pkg/inner/upstream.txt")
+    _git(upstream, "commit", "-m", "add inner")
+
+    entry = vendor_mod.add_vendor(
+        git_repo,
+        "vendor-inner",
+        source_url=_upstream_url(upstream),
+        name="inner-migrate",
+        include_paths=["pkg/inner"],
+        migrate=True,
+    )
+    link_path = git_repo / "vendor-inner"
+    assert link_mod._is_reparse_point(link_path)
+    assert (link_path / "local.txt").read_text(encoding="utf-8") == "local-only"
+    assert (link_path / "upstream.txt").read_text(encoding="utf-8") == "upstream"
+    cache = Path(entry.cache_path)
+    assert (cache / "pkg" / "inner" / "local.txt").read_text(encoding="utf-8") == "local-only"
+    assert not (cache / "local.txt").exists()

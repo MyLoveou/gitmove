@@ -61,6 +61,15 @@ class SyncPullReport:
     errors: list[str]
 
 
+class SyncConflictBlocked(Exception):
+    """Raised when skip-path drifts require interactive resolution."""
+
+    def __init__(self, report: SyncCheckReport) -> None:
+        self.report = report
+        self.conflicts = report.attention_items
+        super().__init__(f"{len(self.conflicts)} skip path(s) require manual resolution")
+
+
 def upstream_ref(root: Path) -> str | None:
     result = git.run_git(
         "rev-parse",
@@ -267,6 +276,34 @@ def sync_pull(
 
     apply_all(root)
     return SyncPullReport(pulled=True, reapplied=reapplied, skipped=skipped, errors=errors)
+
+
+def sync_pull_abort_on_conflict(
+    root: Path,
+    *,
+    fetch: bool = True,
+    dry_run: bool = False,
+) -> SyncPullReport:
+    """Pull only when no skip-path remote drifts exist; otherwise abort without mutating."""
+    if not config_path_for_repo(root).exists():
+        raise FileNotFoundError("gitmove is not initialized; run: gitmove init")
+
+    report = check_sync(root, fetch=fetch)
+    if report.upstream is None:
+        raise git.GitError("No upstream branch configured for current branch")
+
+    if report.attention_items:
+        raise SyncConflictBlocked(report)
+
+    if dry_run:
+        return SyncPullReport(pulled=False, reapplied=[], skipped=[], errors=[])
+
+    pull = git.run_git("pull", "--ff-only", cwd=root, check=False)
+    if pull.returncode != 0:
+        raise git.GitError(pull.stderr.strip() or pull.stdout.strip() or "git pull failed")
+
+    apply_all(root)
+    return SyncPullReport(pulled=True, reapplied=[], skipped=[], errors=[])
 
 
 def default_chooser(drift: SyncDrift) -> SyncStrategy | None:

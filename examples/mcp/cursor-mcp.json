@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "gitmove": {
+      "command": "python",
+      "args": ["-m", "gitmove.mcp.server"],
+      "env": {
+        "GITMOVE_MCP_ALLOW_WRITE": "0",
+        "GITMOVE_REPO": "",
+        "GIT_TERMINAL_PROMPT": "0",
+        "GCM_INTERACTIVE": "Never"
+      }
+    }
+  }
+}

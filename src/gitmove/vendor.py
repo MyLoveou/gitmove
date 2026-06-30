@@ -11,6 +11,7 @@ from pathlib import Path
 
 from gitmove import git
 from gitmove.config import VendorEntry, normalize_rel, resolve_repo_path
+from gitmove.errors import GitMoveError, catalog_error
 from gitmove import link as link_mod
 from gitmove.platform_util import resolve_link_type
 from gitmove.skip import load_config, save_config
@@ -95,34 +96,67 @@ def _resolve_cache_path(entry: VendorEntry) -> Path:
     return default_cache_path(entry.name)
 
 
+def _vendor_link_target(cache: Path, entry: VendorEntry) -> Path:
+    if entry.include_paths:
+        return cache / normalize_rel(entry.include_paths[0])
+    return cache
+
+
+def _validate_include_path(cache: Path, entry: VendorEntry) -> None:
+    if not entry.include_paths:
+        return
+    rel = normalize_rel(entry.include_paths[0])
+    if Path(rel).is_absolute() or ".." in Path(rel).parts:
+        raise catalog_error(
+            "INCLUDE_PATH_NOT_IN_CACHE",
+            message=f"include_paths must stay inside cache: {rel}",
+            include_path=rel,
+            cache=str(cache),
+        )
+    target = _vendor_link_target(cache, entry)
+    try:
+        target.resolve().relative_to(cache.resolve())
+    except ValueError as exc:
+        raise catalog_error(
+            "INCLUDE_PATH_NOT_IN_CACHE",
+            message=f"include_paths escapes cache: {rel}",
+            include_path=rel,
+            cache=str(cache),
+        ) from exc
+    if not target.exists():
+        raise catalog_error(
+            "INCLUDE_PATH_NOT_IN_CACHE",
+            message=f"include_paths not found in cache: {rel}",
+            include_path=rel,
+            cache=str(cache),
+        )
+
+
 def _is_correct_vendor_link(root: Path, entry: VendorEntry, cache: Path) -> bool:
     link_path = root / entry.repo_path
+    expected = _vendor_link_target(cache, entry)
     if not link_mod._is_reparse_point(link_path):
         return False
     try:
-        return link_path.resolve() == cache.resolve()
+        return link_path.resolve() == expected.resolve()
     except OSError:
         return False
 
 
-def _clone_cache(cache: Path, source_url: str, source_ref: str) -> None:
+def _clone_cache(cache: Path, source_url: str, source_ref: str, *, shallow: bool = True) -> None:
     if cache.exists():
         return
     cache.parent.mkdir(parents=True, exist_ok=True)
-    result = git.run_git(
-        "clone",
-        "--branch",
-        source_ref,
-        "--single-branch",
-        source_url,
-        str(cache),
-        check=False,
-    )
+    args = ["clone", "--branch", source_ref, "--single-branch"]
+    if shallow:
+        args.extend(["--depth", "1"])
+    args.extend([source_url, str(cache)])
+    result = git.run_git(*args, check=False)
     if result.returncode != 0:
         if cache.exists():
             _purge_cache_dir(cache)
         stderr = result.stderr.strip() or result.stdout.strip() or "git clone failed"
-        raise VendorError(stderr)
+        raise catalog_error("VENDOR_CLONE_FAILED", message=stderr, url=source_url)
 
 
 def _commit_cache_changes(cache: Path, message: str = "gitmove vendor migrate") -> None:
@@ -135,22 +169,23 @@ def _commit_cache_changes(cache: Path, message: str = "gitmove vendor migrate") 
         raise VendorError(stderr)
 
 
-def _migrate_repo_path_to_cache(link_path: Path, cache: Path) -> None:
+def _migrate_repo_path_to_cache(link_path: Path, cache: Path, *, migrate_target: Path | None = None) -> None:
     if not link_path.exists():
         return
     if link_mod._is_reparse_point(link_path):
         return
-    cache.parent.mkdir(parents=True, exist_ok=True)
+    target = migrate_target or cache
+    target.parent.mkdir(parents=True, exist_ok=True)
     if link_path.is_dir():
-        if cache.exists():
-            shutil.copytree(link_path, cache, dirs_exist_ok=True)
+        if target.exists():
+            shutil.copytree(link_path, target, dirs_exist_ok=True)
             shutil.rmtree(link_path)
         else:
-            shutil.copytree(link_path, cache, dirs_exist_ok=False)
+            shutil.copytree(link_path, target, dirs_exist_ok=False)
             shutil.rmtree(link_path)
     else:
-        cache.mkdir(parents=True, exist_ok=True)
-        shutil.move(str(link_path), str(cache / link_path.name))
+        target.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(link_path), str(target / link_path.name))
 
 
 def _apply_skip_for_vendor(root: Path, entry: VendorEntry) -> None:
@@ -179,6 +214,8 @@ def add_vendor(
     link_type: str | None = None,
     migrate: bool = False,
     auto_skip_tracked: bool = True,
+    shallow: bool = True,
+    include_paths: list[str] | None = None,
 ) -> VendorEntry:
     repo_path = normalize_rel(repo_rel)
     resolve_repo_path(root, repo_path)
@@ -203,14 +240,36 @@ def add_vendor(
     link_path = root / repo_path
 
     if link_path.exists() and not link_mod._is_reparse_point(link_path) and not migrate:
-        raise FileExistsError(
-            f"{repo_path} exists and is not a link. Use --migrate to move content to cache."
+        raise catalog_error(
+            "VENDOR_PATH_EXISTS",
+            message=f"{repo_path} exists and is not a link. Use --migrate to move content to cache.",
+            path=repo_path,
         )
 
-    _clone_cache(cache, source_url, source_ref)
+    normalized_include = [normalize_rel(p) for p in (include_paths or []) if p.strip()]
+    if len(normalized_include) > 1:
+        raise VendorError("Only one include_paths entry is supported in v1")
+    try:
+        _clone_cache(cache, source_url, source_ref, shallow=shallow)
+        _validate_include_path(
+            cache,
+            VendorEntry(
+                name=vendor_name,
+                repo_path=repo_path,
+                source_url=source_url,
+                include_paths=normalized_include,
+            ),
+        )
+    except Exception:
+        if cache.exists():
+            _purge_cache_dir(cache)
+        raise
 
     if link_path.exists() and not link_mod._is_reparse_point(link_path):
-        _migrate_repo_path_to_cache(link_path, cache)
+        migrate_target = (
+            cache / normalize_rel(normalized_include[0]) if normalized_include else cache
+        )
+        _migrate_repo_path_to_cache(link_path, cache, migrate_target=migrate_target)
         _commit_cache_changes(cache)
 
     entry = VendorEntry(
@@ -221,14 +280,17 @@ def add_vendor(
         cache_path=str(cache).replace("\\", "/"),
         link_type=resolved_type,
         auto_skip_tracked=auto_skip_tracked,
+        shallow=shallow,
+        include_paths=normalized_include,
     )
 
+    link_target = _vendor_link_target(cache, entry)
     try:
         if not _is_correct_vendor_link(root, entry, cache):
             if link_path.exists() and link_mod._is_reparse_point(link_path):
                 link_mod._remove_link_path(link_path)
             if not link_path.exists():
-                link_mod.create_link(link_path, cache, resolved_type)
+                link_mod.create_link(link_path, link_target, resolved_type)
         cfg.vendors.append(entry)
         save_config(root, cfg)
         _apply_skip_for_vendor(root, entry)
@@ -248,13 +310,15 @@ def apply_vendors(root: Path) -> list[VendorStatus]:
     for entry in cfg.vendors:
         cache = _resolve_cache_path(entry)
         if not cache.exists():
-            _clone_cache(cache, entry.source_url, entry.source_ref)
+            _clone_cache(cache, entry.source_url, entry.source_ref, shallow=entry.shallow)
+        _validate_include_path(cache, entry)
         link_path = root / entry.repo_path
+        link_target = _vendor_link_target(cache, entry)
         if not _is_correct_vendor_link(root, entry, cache):
             if link_path.exists() and link_mod._is_reparse_point(link_path):
                 link_mod._remove_link_path(link_path)
             if not link_path.exists():
-                link_mod.create_link(link_path, cache, entry.link_type)
+                link_mod.create_link(link_path, link_target, entry.link_type)
         _apply_skip_for_vendor(root, entry)
         statuses.append(_status_for_entry(root, entry))
     return statuses
@@ -341,18 +405,27 @@ def sync_vendor(root: Path, name_or_path: str, *, fetch: bool = True) -> VendorS
         raise VendorError(f"Cache missing for vendor {entry.name}: {cache}")
 
     if _cache_dirty(cache):
-        raise VendorError(f"Cache has uncommitted changes: {cache}")
+        raise catalog_error("VENDOR_CACHE_DIRTY", message=f"Cache has uncommitted changes: {cache}", cache=str(cache))
 
     old_commit = _cache_head(cache)
     if fetch:
         fetch_result = git.run_git("fetch", "origin", cwd=cache, check=False)
         if fetch_result.returncode != 0:
-            raise VendorError(fetch_result.stderr.strip() or "git fetch failed")
+            raise catalog_error(
+                "GIT_COMMAND_FAILED",
+                message=fetch_result.stderr.strip() or "git fetch failed",
+            )
 
     merge = git.run_git("merge", "--ff-only", _remote_ref(entry), cwd=cache, check=False)
     if merge.returncode != 0:
         stderr = merge.stderr.strip() or merge.stdout.strip() or "merge --ff-only failed"
-        raise VendorError(stderr)
+        raise catalog_error(
+            "VENDOR_FF_BLOCKED",
+            message=stderr,
+            name=entry.name,
+            ref=entry.source_ref,
+            cache=str(cache),
+        )
 
     new_commit = _cache_head(cache)
     return VendorSyncResult(
@@ -369,7 +442,7 @@ def sync_all_vendors(root: Path, *, fetch: bool = True) -> list[VendorSyncResult
     for entry in load_config(root).vendors:
         try:
             results.append(sync_vendor(root, entry.name, fetch=fetch))
-        except VendorError as exc:
+        except (VendorError, GitMoveError) as exc:
             results.append(VendorSyncResult(entry.name, ok=False, message=str(exc)))
     return results
 

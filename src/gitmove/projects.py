@@ -9,7 +9,7 @@ from typing import Callable
 from gitmove import git
 from gitmove.config import config_path_for_repo
 from gitmove.doctor import apply_all as apply_all_report, run_doctor
-from gitmove.registry import ProjectEntry, list_projects
+from gitmove.registry import ProjectEntry, list_projects, load_registry, save_registry
 from gitmove.sync import (
     StrategyChooser,
     SyncCheckReport,
@@ -50,6 +50,31 @@ class ProjectSyncPullSummary:
     skipped_project: bool
     report: SyncPullReport | None = None
     message: str | None = None
+
+
+def format_batch_sync_pull_lines(
+    results: list[ProjectSyncPullSummary],
+) -> tuple[list[str], bool]:
+    lines: list[str] = []
+    had_errors = False
+    for item in results:
+        if item.report and item.report.errors:
+            had_errors = True
+            for error in item.report.errors:
+                lines.append(f"{item.alias}: {error}")
+            continue
+        if item.message:
+            lines.append(f"{item.alias}: {item.message}")
+            if item.message != "skipped by user":
+                had_errors = True
+            continue
+        if item.skipped_project:
+            lines.append(f"{item.alias}: 跳过")
+        elif item.pulled:
+            lines.append(f"{item.alias}: 已 pull")
+        else:
+            lines.append(f"{item.alias}: 无变更")
+    return lines, had_errors
 
 
 def project_status(path: Path) -> str:
@@ -280,3 +305,83 @@ def default_project_chooser(entry: ProjectEntry, report: SyncCheckReport) -> boo
         if choice in {"n", "no"}:
             return False
         print("无效输入，请重新选择")
+
+
+@dataclass
+class RepairRow:
+    alias: str
+    old_path: Path
+    new_path: Path | None
+    action: str  # updated | skipped | dry_run | no_match | invalid
+
+
+def _validate_repair_target(path: Path) -> str | None:
+    if not path.exists():
+        return "path does not exist"
+    if not git.is_git_repo(path):
+        return "not a git repository"
+    return None
+
+
+RepairPathChooser = Callable[[ProjectEntry], str | None]
+
+
+def _auto_suggest_path(entry: ProjectEntry) -> Path | None:
+    old = entry.path
+    if old.exists():
+        return None
+    name = old.name
+    parent = old.parent
+    matches: list[Path] = []
+    if parent.exists():
+        for child in parent.iterdir():
+            if child.is_dir() and child.name == name and git.is_git_repo(child):
+                matches.append(child.resolve())
+    search_root = parent.parent if parent.parent.exists() else (parent if parent.exists() else None)
+    if search_root is not None:
+        for child in search_root.iterdir():
+            if child.is_dir() and child.name == name and git.is_git_repo(child):
+                candidate = child.resolve()
+                if candidate not in matches:
+                    matches.append(candidate)
+    if len(matches) == 1:
+        return matches[0]
+    return None
+
+
+def repair_projects(
+    *,
+    dry_run: bool = False,
+    auto: bool = False,
+    path_chooser: RepairPathChooser | None = None,
+) -> list[RepairRow]:
+    registry = load_registry()
+    rows: list[RepairRow] = []
+    for entry in registry.projects:
+        if entry.path.exists():
+            continue
+        old_path = entry.path
+        new_path: Path | None = None
+        if auto:
+            new_path = _auto_suggest_path(entry)
+        elif path_chooser is not None:
+            raw = path_chooser(entry)
+            if raw:
+                new_path = Path(raw).expanduser().resolve()
+        else:
+            continue
+        if new_path is None:
+            rows.append(RepairRow(entry.alias, old_path, None, "skipped" if path_chooser else "no_match"))
+            continue
+        if dry_run:
+            rows.append(RepairRow(entry.alias, old_path, new_path, "dry_run"))
+            continue
+        invalid = _validate_repair_target(new_path)
+        if invalid:
+            rows.append(RepairRow(entry.alias, old_path, new_path, "invalid"))
+            continue
+        entry.path = new_path
+        rows.append(RepairRow(entry.alias, old_path, new_path, "updated"))
+    if not dry_run:
+        save_registry(registry)
+    return rows

@@ -34,6 +34,8 @@ class VendorEntry:
     cache_path: str = ""
     link_type: str = "junction"
     auto_skip_tracked: bool = True
+    shallow: bool = True
+    include_paths: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -101,6 +103,8 @@ class GitMoveConfig:
                         cache_path=value.get("cache_path", ""),
                         link_type=value.get("link_type", "junction") or "junction",
                         auto_skip_tracked=bool(value.get("auto_skip_tracked", True)),
+                        shallow=bool(value.get("shallow", True)),
+                        include_paths=_load_include_paths(value),
                     )
                 )
         for vendor in cfg.vendors:
@@ -134,6 +138,12 @@ class GitMoveConfig:
                     "cache_path": vendor.cache_path,
                     "link_type": vendor.link_type,
                     "auto_skip_tracked": vendor.auto_skip_tracked,
+                    "shallow": vendor.shallow,
+                    **(
+                        {"include_paths": list(vendor.include_paths)}
+                        if vendor.include_paths
+                        else {}
+                    ),
                 }
                 for vendor in self.vendors
             },
@@ -144,6 +154,13 @@ class GitMoveConfig:
 
 def config_path_for_repo(root: Path) -> Path:
     return root / ".git" / CONFIG_FILENAME
+
+
+def _load_include_paths(value: dict) -> list[str]:
+    raw = value.get("include_paths")
+    if not isinstance(raw, list) or not raw:
+        return []
+    return [normalize_rel(str(item)) for item in raw if str(item).strip()]
 
 
 def normalize_rel(path: str) -> str:

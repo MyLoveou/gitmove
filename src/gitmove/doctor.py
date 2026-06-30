@@ -12,11 +12,16 @@ from gitmove import vendor as vendor_mod
 from gitmove import worktree as worktree_mod
 
 
+from gitmove.errors import RemediationStep, remediation_for_doctor
+
+
 @dataclass
 class DoctorIssue:
     level: str  # error | warn | info
     category: str
     message: str
+    code: str | None = None
+    remediation: list[RemediationStep] | None = None
 
 
 @dataclass
@@ -54,15 +59,20 @@ def run_doctor(
     report = DoctorReport()
     cfg_path = config_path_for_repo(root)
     if not cfg_path.exists():
+        code, steps = remediation_for_doctor("config", "尚未初始化，请先执行 init")
         report.issues.append(
-            DoctorIssue("info", "config", "尚未初始化，请先执行 init")
+            DoctorIssue("info", "config", "尚未初始化，请先执行 init", code=code, remediation=steps)
         )
         return report
+
+    def _issue(level: str, category: str, message: str) -> DoctorIssue:
+        code, steps = remediation_for_doctor(category, message)
+        return DoctorIssue(level, category, message, code=code, remediation=steps or None)
 
     for item in skip_items if skip_items is not None else skip_mod.list_status(root):
         if item.in_config and item.tracked and not item.skip_active:
             report.issues.append(
-                DoctorIssue("error", "skip", f"skip-worktree 未生效: {item.path}")
+                _issue("error", "skip", f"skip-worktree 未生效: {item.path}")
             )
         if item.in_config and not (root / item.path).exists():
             report.issues.append(
@@ -72,7 +82,7 @@ def run_doctor(
     for item in link_items if link_items is not None else link_mod.list_links(root):
         if not item.repo_exists:
             report.issues.append(
-                DoctorIssue("error", "link", f"仓库内链接缺失: {item.repo_path}")
+                _issue("error", "link", f"仓库内链接缺失: {item.repo_path}")
             )
         elif item.is_link and not item.link_ok:
             report.issues.append(
@@ -94,7 +104,8 @@ def run_doctor(
             )
 
     for level, category, message in vendor_mod.check_vendors_for_doctor(root, fetch_behind=True):
-        report.issues.append(DoctorIssue(level, category, message))
+        code, steps = remediation_for_doctor(category, message)
+        report.issues.append(DoctorIssue(level, category, message, code=code, remediation=steps or None))
 
     if not report.issues:
         report.issues.append(DoctorIssue("info", "general", "所有检查通过"))

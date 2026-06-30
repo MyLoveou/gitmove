@@ -1,0 +1,1 @@
+"""gitmove MCP server (stdio)."""

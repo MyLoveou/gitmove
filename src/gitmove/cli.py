@@ -13,6 +13,7 @@ from gitmove import __version__, git
 from gitmove.config import config_path_for_repo
 from gitmove.config_io import export_config, import_config, import_config_from_repo
 from gitmove.doctor import apply_all as apply_all_report, init_repo, run_doctor
+from gitmove.errors import GitMoveError, catalog_error, print_error, wrap_exception
 from gitmove import link as link_mod
 from gitmove.platform_util import default_link_type, resolve_link_type
 from gitmove import projects as projects_mod
@@ -30,6 +31,7 @@ from gitmove.repo_context import RepoContextError, resolve_repo_root
 from gitmove import skip as skip_mod
 from gitmove.sync import check_sync, default_chooser, sync_pull
 from gitmove import vendor as vendor_mod
+from gitmove import templates as templates_mod
 from gitmove import worktree as worktree_mod
 
 _CURRENT_REPO_OPT: str | None = None
@@ -47,15 +49,21 @@ sync_app = typer.Typer(help="Check and pull remote changes for skip-worktree pat
 projects_app = typer.Typer(help="Manage registered Git repositories.")
 projects_sync_app = typer.Typer(help="Sync skip-worktree paths across projects.")
 vendor_app = typer.Typer(help="Upstream Git vendor (cache clone + whole-repo link).")
+vendor_template_app = typer.Typer(help="Vendor configuration templates.")
 console = Console()
+
+
+def _fail(exc: BaseException) -> None:
+    print_error(console, wrap_exception(exc))
+    raise typer.Exit(1) from exc
 
 
 def _root() -> Path:
     try:
         return resolve_repo_root(repo_opt=_CURRENT_REPO_OPT)
     except RepoContextError as exc:
-        console.print(f"[red]Not a git repository.[/red] {exc}")
-        raise typer.Exit(1) from exc
+        _fail(catalog_error("REPO_NOT_GIT", message=str(exc)))
+    raise AssertionError("unreachable")
 
 
 @app.callback()
@@ -123,12 +131,13 @@ def apply_cmd() -> None:
 
 
 @app.command("doctor")
-def doctor_cmd() -> None:
+def doctor_cmd(
+    fix_hints: bool = typer.Option(True, "--fix-hints/--no-fix-hints", help="Show remediation steps."),
+) -> None:
     """Check configuration vs actual git state."""
     root = _root()
     if not config_path_for_repo(root).exists():
-        console.print("[yellow]No config found.[/yellow] Run: gitmove init")
-        raise typer.Exit(1)
+        _fail(catalog_error("REPO_NOT_INIT"))
 
     report = run_doctor(root)
     for issue in report.issues:
@@ -138,6 +147,11 @@ def doctor_cmd() -> None:
             console.print(f"[yellow]WARN[/yellow] {issue.message}")
         else:
             console.print(f"[green]OK[/green] {issue.message}")
+        if fix_hints and issue.remediation:
+            for index, step in enumerate(issue.remediation, start=1):
+                console.print(f"  [dim]{index}. {step.title}[/dim]")
+                if step.command:
+                    console.print(f"     [cyan]{step.command}[/cyan]")
 
     if report.ok and report.error_count == 0 and report.warn_count == 0:
         console.print("[green]All checks passed.[/green]")
@@ -304,6 +318,9 @@ def config_import_cmd(
         help="Set external base and expand ${EXTERNAL_BASE} in imported paths.",
     ),
     apply_after: bool = typer.Option(False, "--apply", help="Apply skip/links/worktrees after import."),
+    register: bool = typer.Option(False, "--register", help="Add current repo to projects registry."),
+    register_alias: Optional[str] = typer.Option(None, "--alias", help="Alias when using --register."),
+    register_group: Optional[str] = typer.Option(None, "--group", help="Group when using --register."),
 ) -> None:
     """Import configuration from a TOML file or another repository."""
     root = _root()
@@ -332,13 +349,18 @@ def config_import_cmd(
                 base_override=base_override,
             )
             console.print(f"[green]Imported[/green] from {source}")
-    except (FileNotFoundError, ValueError) as exc:
-        console.print(f"[red]{exc}[/red]")
-        raise typer.Exit(1) from exc
+    except (FileNotFoundError, ValueError, GitMoveError) as exc:
+        _fail(exc)
 
     console.print(
         f"  skip: {len(result.skip_paths)}  links: {len(result.links)}  worktrees: {len(result.worktrees)}"
     )
+    if register:
+        try:
+            add_project(root, alias=register_alias, group=register_group)
+            console.print(f"[green]Registered[/green] project {register_alias or root.name}")
+        except RegistryError as exc:
+            _fail(exc)
     if apply_after:
         apply_all_report(root)
         console.print("[green]Applied[/green] imported configuration")
@@ -514,6 +536,45 @@ def projects_set_default_cmd(
     console.print(f"[green]Default project[/green] set to {alias}")
 
 
+@projects_app.command("repair")
+def projects_repair_cmd(
+    dry_run: bool = typer.Option(False, "--dry-run", help="Show changes without writing registry."),
+    auto: bool = typer.Option(False, "--auto", help="Auto-suggest path when unambiguous."),
+) -> None:
+    """Repair MISSING project paths in the registry."""
+    missing = [entry for entry in list_projects() if project_status(entry.path) == "MISSING"]
+    if not missing:
+        console.print("[green]No MISSING projects.[/green]")
+        return
+
+    def chooser(entry: ProjectEntry) -> str | None:
+        console.print(f"\n[bold]{entry.alias}[/bold] 旧路径: {entry.path}")
+        value = input("新路径（回车跳过）: ").strip()
+        return value or None
+
+    rows = projects_mod.repair_projects(
+        dry_run=dry_run,
+        auto=auto,
+        path_chooser=None if auto else chooser,
+    )
+    if not rows:
+        console.print("[yellow]No repairs performed.[/yellow]")
+        return
+    table = Table(show_header=True, header_style="bold")
+    table.add_column("Alias")
+    table.add_column("Old path")
+    table.add_column("New path")
+    table.add_column("Action")
+    for row in rows:
+        table.add_row(
+            row.alias,
+            str(row.old_path),
+            str(row.new_path) if row.new_path else "—",
+            row.action,
+        )
+    console.print(table)
+
+
 @projects_app.command("doctor")
 def projects_doctor_cmd(
     all_projects: bool = typer.Option(False, "--all", help="Run doctor for all registered projects."),
@@ -600,32 +661,77 @@ def projects_sync_pull_cmd(
         raise typer.Exit(1)
 
 
+@vendor_template_app.command("list")
+def vendor_template_list_cmd() -> None:
+    """List built-in and user vendor templates."""
+    table = Table(show_header=True, header_style="bold")
+    table.add_column("ID")
+    table.add_column("Repo path")
+    table.add_column("URL")
+    table.add_column("Ref")
+    table.add_column("Source")
+    for item in templates_mod.list_templates():
+        table.add_row(
+            item.id,
+            item.repo_path,
+            item.source_url,
+            item.source_ref,
+            "builtin" if item.builtin else "user",
+        )
+    console.print(table)
+
+
 @vendor_app.command("add")
 def vendor_add_cmd(
     repo_path: str = typer.Argument(..., help="Mount path inside the business repository."),
-    source_url: str = typer.Option(..., "--from", help="Upstream Git clone URL."),
+    source_url: Optional[str] = typer.Option(None, "--from", help="Upstream Git clone URL."),
     name: Optional[str] = typer.Option(None, "--name", help="Vendor name (TOML key)."),
-    source_ref: str = typer.Option("main", "--ref", help="Upstream branch/tag."),
+    source_ref: Optional[str] = typer.Option(None, "--ref", help="Upstream branch/tag."),
     cache: Optional[str] = typer.Option(None, "--cache", help="Local cache directory."),
     link_type: Optional[str] = typer.Option(None, "--type", "-t", help="junction or symlink."),
     migrate: bool = typer.Option(False, "--migrate", "-m", help="Move existing directory into cache."),
+    template: Optional[str] = typer.Option(None, "--template", help="Use a vendor template id."),
+    shallow: bool = typer.Option(True, "--shallow/--no-shallow", help="Shallow clone cache."),
+    include_path: Optional[str] = typer.Option(
+        None,
+        "--include-path",
+        help="Link cache subdirectory instead of whole cache (v1: single path).",
+    ),
 ) -> None:
-    """Add an upstream vendor (clone cache + whole-repo link)."""
+    """Add an upstream vendor (clone cache + link)."""
     root = _root()
+    resolved_url = source_url
+    resolved_ref = source_ref
+    if template:
+        try:
+            tpl = templates_mod.resolve_template(
+                template,
+                repo_path_override=repo_path,
+                source_ref_override=source_ref,
+            )
+        except GitMoveError as exc:
+            _fail(exc)
+        resolved_url = resolved_url or tpl.source_url
+        resolved_ref = source_ref if source_ref is not None else tpl.source_ref
+    if not resolved_url:
+        console.print("[red]Provide --from or --template.[/red]")
+        raise typer.Exit(1)
+    include_paths = [include_path] if include_path else None
     try:
         entry = vendor_mod.add_vendor(
             root,
             repo_path,
-            source_url=source_url,
+            source_url=resolved_url,
             name=name,
-            source_ref=source_ref,
+            source_ref=resolved_ref or "main",
             cache_path=cache,
             link_type=resolve_link_type(link_type),
             migrate=migrate,
+            shallow=shallow,
+            include_paths=include_paths,
         )
-    except (vendor_mod.VendorError, FileExistsError, RuntimeError, ValueError) as exc:
-        console.print(f"[red]{exc}[/red]")
-        raise typer.Exit(1) from exc
+    except (vendor_mod.VendorError, FileExistsError, RuntimeError, ValueError, GitMoveError) as exc:
+        _fail(exc)
     console.print(
         f"[green]Vendor added[/green] {entry.name}: {entry.repo_path} -> {entry.cache_path}"
     )
@@ -681,9 +787,8 @@ def vendor_sync_cmd(
             raise typer.Exit(1)
         try:
             result = vendor_mod.sync_vendor(root, name_or_path, fetch=fetch)
-        except vendor_mod.VendorError as exc:
-            console.print(f"[red]{exc}[/red]")
-            raise typer.Exit(1) from exc
+        except (vendor_mod.VendorError, GitMoveError) as exc:
+            _fail(exc)
         if result.updated:
             old = (result.old_commit or "")[:7]
             new = (result.new_commit or "")[:7]
@@ -805,6 +910,7 @@ app.add_typer(sync_app, name="sync")
 projects_app.add_typer(projects_sync_app, name="sync")
 app.add_typer(projects_app, name="projects")
 app.add_typer(vendor_app, name="vendor")
+vendor_app.add_typer(vendor_template_app, name="template")
 
 
 if __name__ == "__main__":

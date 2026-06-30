@@ -14,6 +14,11 @@ import customtkinter as ctk
 from gitmove import __version__, git
 from gitmove.config import config_path_for_repo, resolve_external_base
 from gitmove.doctor import apply_all, init_repo, run_doctor
+from gitmove.errors import GitMoveError, wrap_exception
+from gitmove.gui.async_runner import call_on_main_thread
+from gitmove.gui.error_dialog import show_gitmove_error
+from gitmove.gui.sync_chooser import gui_file_chooser, gui_project_chooser
+from gitmove.platform_util import open_path_in_file_manager
 from gitmove import link as link_mod
 from gitmove import projects as projects_mod
 from gitmove.registry import RegistryError, add_project, list_projects, load_registry, remove_project, touch_last_used
@@ -82,6 +87,9 @@ class GitMoveApp(ctk.CTk):
         ctk.CTkButton(side_actions, text="全部 apply", command=self._batch_apply).pack(
             fill="x", pady=2
         )
+        ctk.CTkButton(side_actions, text="全部 sync pull", command=self._batch_sync_pull).pack(
+            fill="x", pady=2
+        )
 
         main_panel = ctk.CTkFrame(body, fg_color="transparent")
         main_panel.pack(side="left", fill="both", expand=True)
@@ -143,8 +151,14 @@ class GitMoveApp(ctk.CTk):
             anchor="w", pady=(0, 8)
         )
         self.overview_text = ctk.CTkTextbox(frame, height=220)
-        self.overview_text.pack(fill="x", pady=(0, 12))
+        self.overview_text.pack(fill="x", pady=(0, 8))
         self.overview_text.configure(state="disabled")
+        self.overview_apply_btn = ctk.CTkButton(
+            frame,
+            text="修复：一键 apply",
+            command=self._on_apply,
+        )
+        self._last_doctor_report = None
 
         ctk.CTkLabel(frame, text="外部目录默认根路径", font=ctk.CTkFont(weight="bold")).pack(
             anchor="w"
@@ -423,7 +437,8 @@ class GitMoveApp(ctk.CTk):
 
             self._set_busy(False)
             if kind == "error":
-                messagebox.showerror("错误", str(payload))
+                err = wrap_exception(payload)  # type: ignore[arg-type]
+                show_gitmove_error(self, err, on_action=self._handle_error_action)
                 return
             if on_success:
                 on_success(payload)
@@ -458,6 +473,7 @@ class GitMoveApp(ctk.CTk):
             self._render_links(link_items)
             self._render_worktrees(wt_items)
             self._render_overview(root, report)
+            self._last_doctor_report = report
             self._update_status(f"已加载: {root}")
 
         self._run_background("正在刷新…", task, on_success=on_success)
@@ -473,7 +489,59 @@ class GitMoveApp(ctk.CTk):
         for issue in report.issues:
             prefix = {"error": "[错误]", "warn": "[警告]", "info": "[信息]"}.get(issue.level, "")
             lines.append(f"{prefix} ({issue.category}) {issue.message}")
+            if issue.remediation:
+                for step in issue.remediation[:2]:
+                    if step.command:
+                        lines.append(f"    → {step.command}")
         self._set_text(self.overview_text, "\n".join(lines))
+        if report.error_count > 0:
+            self.overview_apply_btn.pack(fill="x", pady=(0, 12))
+        else:
+            self.overview_apply_btn.pack_forget()
+
+    def _handle_error_action(self, action: str, err: GitMoveError) -> None:
+        if action == "apply":
+            self._on_apply()
+        elif action == "init":
+            self._on_init()
+        elif action == "pick_repo":
+            self._pick_repo()
+        elif action == "open_cache":
+            cache = err.context.get("cache")
+            if cache:
+                open_path_in_file_manager(str(cache))
+            else:
+                messagebox.showwarning("提示", "未找到 cache 路径", parent=self)
+        elif action == "repair":
+            messagebox.showinfo("修复路径", "请使用 CLI: gitmove projects repair", parent=self)
+
+    def _batch_sync_pull(self) -> None:
+        if self._busy:
+            return
+        entries = projects_mod.iter_projects()
+
+        def project_chooser(entry, report):
+            return call_on_main_thread(
+                self, lambda: gui_project_chooser(self, entry, report)
+            )
+
+        def file_chooser(drift):
+            return call_on_main_thread(self, lambda: gui_file_chooser(self, drift))
+
+        def task():
+            return projects_mod.batch_sync_pull(
+                entries,
+                fetch=True,
+                project_chooser=project_chooser,
+                file_chooser=file_chooser,
+            )
+
+        def on_success(results) -> None:
+            lines, had_errors = projects_mod.format_batch_sync_pull_lines(results)
+            title = "批量 sync（有错误）" if had_errors else "批量 sync"
+            messagebox.showinfo(title, "\n".join(lines) or "完成", parent=self)
+
+        self._run_background("正在批量 sync pull…", task, on_success=on_success)
 
     def _render_skip(self, items) -> None:
         tree = self.skip_tree

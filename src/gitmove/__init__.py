@@ -1,3 +1,3 @@
 """gitmove — local Git exclusion tool without touching .gitignore."""
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"

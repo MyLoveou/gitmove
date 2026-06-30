@@ -35,7 +35,7 @@
 - 未要求不 commit/push；不提交密钥、`.env`、`config.local.json`
 - 完成前：`pip install -e .` 且 `gitmove doctor` 通过
 - **新能力**：对应 `docs/requirements/features/<id>.md` 状态为 **已定稿** 后方可编码
-  - `gitmove-core.md` · `gitmove-config-sync.md` · `gitmove-multi-project.md` · `gitmove-vendor.md`
+  - `gitmove-core.md` · `gitmove-config-sync.md` · `gitmove-multi-project.md` · `gitmove-vendor.md` · `gitmove-0.5-enhancements.md`
 
 ---
 

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "gitmove"
-version = "0.4.0"
+version = "0.5.0"
 description = "Manage local-only Git exclusions without modifying .gitignore (skip-worktree, external links, worktrees)"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -20,8 +20,12 @@ dependencies = [
 [project.scripts]
 gitmove = "gitmove.cli:app"
 gitmove-gui = "gitmove.gui.app:main"
+gitmove-mcp = "gitmove.mcp.server:main"
 
 [project.optional-dependencies]
+mcp = [
+    "mcp>=1.0",
+]
 dev = [
     "pytest>=8.0",
     "pytest-cov>=5.0",
@@ -40,6 +44,7 @@ branch = true
 omit = [
     "*/gitmove/cli.py",
     "*/gitmove/gui/app.py",
+    "*/gitmove/gui/error_dialog.py",
 ]
 
 [tool.coverage.report]
@@ -48,6 +53,7 @@ show_missing = true
 omit = [
     "*/gitmove/cli.py",
     "*/gitmove/gui/app.py",
+    "*/gitmove/gui/error_dialog.py",
 ]
 exclude_lines = [
     "if __name__ == .__main__.:",

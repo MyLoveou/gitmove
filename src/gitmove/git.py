@@ -29,6 +29,7 @@ def run_git(
             encoding="utf-8",
             errors="replace",
             timeout=timeout,
+            stdin=subprocess.DEVNULL,
             **subprocess_no_window_kwargs(),
         )
     except subprocess.TimeoutExpired as exc:

@@ -9,7 +9,8 @@
 | **0.3.0** | 多项目 CLI | 已实现 | [gitmove-multi-project](../requirements/features/gitmove-multi-project.md) |
 | **0.3.1** | 多项目 GUI 侧栏 | 已实现 | 同上 |
 | **0.4.0** | 上游 Vendor | 已实现 | [gitmove-vendor](../requirements/features/gitmove-vendor.md) |
-| **0.5.0** | 占位 | 未规划 | vendor 模板、子目录 link、shallow clone |
+| **0.5.0** | Vendor 增强 + 多项目增强 + 错误引导 | **已实现** | [gitmove-0.5-enhancements](../requirements/features/gitmove-0.5-enhancements.md) |
+| **0.6.0** | AI 集成（MCP + Skill + JSON） | 草案 · 待实现 | [gitmove-ai-integration](../requirements/features/gitmove-ai-integration.md) |
 
 ## 0.2.0 — 核心能力（已完成）
 
@@ -60,20 +61,48 @@
 
 典型场景：AI 规范 `.cursor`、公司 tools 仓、文档模板等（见 vendor 需求文档场景表）。
 
-## 0.5.0 — 占位
+## 0.5.0 — Vendor 增强 + 错误引导（已定稿）
 
-- Vendor 配置模板（如 `cursor-spec` 一键套用）
-- `include_paths` 子目录 link（非整仓）
-- `projects repair` 路径修复
-- import 后自动 `projects add`
+**目标**：竞品高契合能力 Phase 1 + 全命令可行动错误提示。
+
+交付：
+
+- **F13** 错误模型、CLI Rich 引导、GUI `ErrorDialog`、doctor 修复按钮
+- **F1** Vendor 模板（`cursor-spec` + `templates.toml`）
+- **F2** `include_paths` 子目录 link（v1 单路径）
+- **F3** shallow clone（默认 depth=1）
+- **F4** `projects repair`
+- **F5** `config import --register`
+- **F6** GUI 批量 sync 向导
+
+## 0.5.x — Phase 2（已定稿 · 后续版本）
+
+- F7 Vendor pin（tag/SHA）
+- F8 Git hooks install/uninstall
+- F9 Profile 切换
+- F10 `projects scan`（opt-in）
+- F11 `projects update`（批量 ff-only pull）
+- F12 Vendor `status --all` / check-updates exit code
+
+## 0.6.0 — AI 集成（MCP · Skill · JSON API）
+
+**目标**：供 Cursor 等 AI 客户端结构化调用 gitmove。
+
+交付（详见 [ai-integration.md](../design/ai-integration.md)）：
+
+- `gitmove-mcp` stdio 服务器 + read tools
+- MCP Resources（文档、注册表、错误 catalog）
+- Cursor Skills：`gitmove-ops`、`gitmove-mcp-setup`
+- CLI `--json`（doctor / projects list / vendor status）
+- 依赖 0.5 **F13** 错误 Envelope
+
+Phase 2（0.6.x）：write tools + MCP Prompts + `GITMOVE_MCP_ALLOW_WRITE`
 
 ## 实现顺序建议
 
 ```
-0.2.x（已完成）→ 0.3.0 CLI → 0.3.1 GUI → 0.4.0 Vendor
+0.4.0（已完成）→ 0.5.0 Phase0(F13) + Phase1(F1–F6) → 0.5.x Phase2(F7–F12) → 0.6.0 AI(MCP+Skill)
 ```
-
-0.3 与 0.4 **设计可并行**，实现建议先完成 0.3.0（多项目编排层），再 0.4.0（vendor 复用 link + skip）。
 
 ## 不变约束（全版本）
 
