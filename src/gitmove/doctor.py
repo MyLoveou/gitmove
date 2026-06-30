@@ -93,6 +93,18 @@ def run_doctor(
                 DoctorIssue("warn", "link", f"路径存在但不是链接: {item.repo_path}")
             )
 
+    cfg = skip_mod.load_config(root)
+    for entry in cfg.links:
+        if entry.migrate_skipped:
+            skipped = ", ".join(entry.migrate_skipped)
+            report.issues.append(
+                DoctorIssue(
+                    "warn",
+                    "link",
+                    f"迁移时跳过 {entry.repo_path}: {skipped}",
+                )
+            )
+
     for item in wt_items if wt_items is not None else worktree_mod.list_worktrees(root):
         if not item.registered:
             report.issues.append(

@@ -19,6 +19,7 @@ from gitmove.registry import RegistryError
 
 def test_catalog_has_minimum_codes() -> None:
     assert len(CATALOG) >= 20
+    assert "PROJECTS_UPDATE_FF_FAILED" in CATALOG
 
 
 def test_catalog_error_substitutes_context() -> None:
@@ -89,6 +90,18 @@ def test_wrap_vendor_path_exists() -> None:
 def test_remediation_vendor_cache() -> None:
     code, steps = remediation_for_doctor("vendor", "vendor cache 缺失: foo (/tmp/c)")
     assert code == "VENDOR_CACHE_MISSING"
+
+
+def test_remediation_vendor_pin_drift() -> None:
+    code, steps = remediation_for_doctor("vendor", "vendor tools pin drift: HEAD != v1.0.0")
+    assert code == "VENDOR_FF_BLOCKED"
+    assert steps
+
+
+def test_remediation_vendor_pin_not_found() -> None:
+    code, steps = remediation_for_doctor("vendor", "vendor tools pin not found: missing-tag")
+    assert code == "VENDOR_PIN_NOT_FOUND"
+    assert steps
 
 
 def test_catalog_unknown_code() -> None:

@@ -33,6 +33,8 @@ from gitmove.sync import check_sync, default_chooser, sync_pull
 from gitmove import vendor as vendor_mod
 from gitmove import templates as templates_mod
 from gitmove import worktree as worktree_mod
+from gitmove import hooks as hooks_mod
+from gitmove import profile as profile_mod
 
 _CURRENT_REPO_OPT: str | None = None
 
@@ -50,6 +52,8 @@ projects_app = typer.Typer(help="Manage registered Git repositories.")
 projects_sync_app = typer.Typer(help="Sync skip-worktree paths across projects.")
 vendor_app = typer.Typer(help="Upstream Git vendor (cache clone + whole-repo link).")
 vendor_template_app = typer.Typer(help="Vendor configuration templates.")
+hooks_app = typer.Typer(help="Optional Git hooks for automatic gitmove apply.")
+profile_app = typer.Typer(help="Named configuration profiles.")
 console = Console()
 
 
@@ -536,6 +540,109 @@ def projects_set_default_cmd(
     console.print(f"[green]Default project[/green] set to {alias}")
 
 
+@projects_app.command("scan")
+def projects_scan_cmd(
+    root: str = typer.Argument(..., help="Directory root to scan for Git repositories."),
+    group: Optional[str] = typer.Option(None, "--group", "-g", help="Group for newly registered projects."),
+    max_depth: int = typer.Option(4, "--max-depth", help="Maximum directory depth to scan."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="List candidates without registering."),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Register all candidates without prompting."),
+) -> None:
+    """Scan a directory tree and register discovered Git repositories."""
+    scan_root = Path(root).expanduser()
+    register_all = False
+    register_none = False
+
+    def chooser(path: Path, alias: str) -> bool:
+        nonlocal register_all, register_none
+        if register_all:
+            return True
+        if register_none:
+            return False
+        while True:
+            choice = input(f"Register {path} as {alias}? [y/n/a/none]: ").strip().lower()
+            if choice in {"y", "yes"}:
+                return True
+            if choice in {"n", "no"}:
+                return False
+            if choice in {"a", "all"}:
+                register_all = True
+                return True
+            if choice == "none":
+                register_none = True
+                return False
+            console.print("[yellow]Invalid choice.[/yellow]")
+
+    try:
+        results = projects_mod.scan_and_register(
+            scan_root,
+            max_depth=max_depth,
+            group=group,
+            dry_run=dry_run,
+            yes=yes,
+            chooser=None if yes or dry_run else chooser,
+        )
+    except ValueError as exc:
+        _fail(exc)
+
+    table = Table(show_header=True, header_style="bold")
+    table.add_column("Path")
+    table.add_column("Alias")
+    table.add_column("Registered")
+    table.add_column("Message")
+    for item in results:
+        table.add_row(
+            str(item.path),
+            item.alias,
+            "yes" if item.registered else "no",
+            item.message or "—",
+        )
+    console.print(table)
+
+
+@projects_app.command("update")
+def projects_update_cmd(
+    all_projects: bool = typer.Option(False, "--all", help="Update all registered projects."),
+    group: Optional[str] = typer.Option(None, "--group", "-g", help="Filter by group when using --all."),
+    ff_only: bool = typer.Option(True, "--ff-only/--no-ff-only", help="Use git pull --ff-only."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Show planned updates without pulling."),
+) -> None:
+    """Run git pull across registered projects (independent of gitmove sync)."""
+    entries = _project_entries_for_batch(all_projects, group)
+    rows = projects_mod.batch_update(entries, ff_only=ff_only, dry_run=dry_run)
+    table = Table(show_header=True, header_style="bold")
+    table.add_column("Alias")
+    table.add_column("Status")
+    table.add_column("Pulled")
+    table.add_column("Old")
+    table.add_column("New")
+    table.add_column("Message")
+    for row in rows:
+        table.add_row(
+            row.alias,
+            row.status,
+            "yes" if row.pulled else "no",
+            (row.old_commit or "—")[:7] if row.old_commit else "—",
+            (row.new_commit or "—")[:7] if row.new_commit else "—",
+            row.message or "—",
+        )
+    console.print(table)
+    if projects_mod.batch_update_exit_code(rows):
+        for row in rows:
+            if row.error_code:
+                print_error(
+                    console,
+                    catalog_error(
+                        row.error_code,
+                        message=row.message or "git pull failed",
+                        alias=row.alias,
+                        path=str(row.path),
+                    ),
+                )
+                break
+        raise typer.Exit(1)
+
+
 @projects_app.command("repair")
 def projects_repair_cmd(
     dry_run: bool = typer.Option(False, "--dry-run", help="Show changes without writing registry."),
@@ -697,6 +804,7 @@ def vendor_add_cmd(
         "--include-path",
         help="Link cache subdirectory instead of whole cache (v1: single path).",
     ),
+    pin: Optional[str] = typer.Option(None, "--pin", help="Pin vendor to tag or commit SHA."),
 ) -> None:
     """Add an upstream vendor (clone cache + link)."""
     root = _root()
@@ -729,6 +837,7 @@ def vendor_add_cmd(
             migrate=migrate,
             shallow=shallow,
             include_paths=include_paths,
+            source_pin=pin,
         )
     except (vendor_mod.VendorError, FileExistsError, RuntimeError, ValueError, GitMoveError) as exc:
         _fail(exc)
@@ -746,18 +855,78 @@ def vendor_list_cmd() -> None:
 @vendor_app.command("status")
 def vendor_status_cmd(
     name_or_path: Optional[str] = typer.Argument(None, help="Vendor name or repo_path."),
+    all_vendors: bool = typer.Option(False, "--all", help="Show all vendors in a table."),
     fetch: bool = typer.Option(True, "--fetch/--no-fetch", help="Fetch before status."),
 ) -> None:
     """Show vendor cache and link status."""
     root = _root()
+    if all_vendors or name_or_path is None:
+        results = vendor_mod.check_vendor_updates(root, fetch=fetch)
+        table = Table(show_header=True, header_style="bold")
+        table.add_column("Name")
+        table.add_column("Repo path")
+        table.add_column("Behind")
+        table.add_column("Dirty")
+        table.add_column("Pin drift")
+        table.add_column("Message")
+        for item in results:
+            table.add_row(
+                item.name,
+                item.repo_path or "—",
+                str(item.behind),
+                "yes" if item.dirty else "no",
+                "yes" if item.pinned_drift else "no",
+                item.message or "—",
+            )
+        console.print(table)
+        code = vendor_mod.vendor_updates_exit_code(results)
+        if code:
+            raise typer.Exit(code)
+        return
+
     entries = vendor_mod.list_vendors(root)
-    targets = entries if name_or_path is None else [e for e in entries if e.name == name_or_path or e.repo_path == name_or_path]
-    if name_or_path and not targets:
+    targets = [e for e in entries if e.name == name_or_path or e.repo_path == name_or_path]
+    if not targets:
         console.print(f"[red]Vendor not found: {name_or_path}[/red]")
         raise typer.Exit(1)
-    for entry in targets:
-        result = vendor_mod.vendor_status(root, entry.name, fetch=fetch)
-        console.print(f"{entry.name}: {result.message}")
+    result = vendor_mod.vendor_status(root, name_or_path, fetch=fetch)
+    console.print(f"{result.name}: {result.message}")
+    code = vendor_mod.vendor_updates_exit_code([result])
+    if code:
+        raise typer.Exit(code)
+
+
+@vendor_app.command("check-updates")
+def vendor_check_updates_cmd(
+    all_vendors: bool = typer.Option(True, "--all/--one", help="Check all vendors (default)."),
+    name_or_path: Optional[str] = typer.Argument(None, help="Vendor name or repo_path."),
+    fetch: bool = typer.Option(True, "--fetch/--no-fetch", help="Fetch before check."),
+) -> None:
+    """Check vendor upstream updates without syncing."""
+    root = _root()
+    if all_vendors and not name_or_path:
+        results = vendor_mod.check_vendor_updates(root, fetch=fetch)
+    else:
+        if not name_or_path:
+            console.print("[red]Provide vendor name/path or use --all.[/red]")
+            raise typer.Exit(1)
+        results = [vendor_mod.vendor_status(root, name_or_path, fetch=fetch)]
+    table = Table(show_header=True, header_style="bold")
+    table.add_column("Name")
+    table.add_column("Behind")
+    table.add_column("Pin drift")
+    table.add_column("Message")
+    for item in results:
+        table.add_row(
+            item.name,
+            str(item.behind),
+            "yes" if item.pinned_drift else "no",
+            item.message or "—",
+        )
+    console.print(table)
+    code = vendor_mod.vendor_updates_exit_code(results)
+    if code:
+        raise typer.Exit(code)
 
 
 @vendor_app.command("sync")
@@ -817,6 +986,110 @@ def vendor_remove_cmd(
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(1) from exc
     console.print(f"[green]Vendor removed[/green] {name_or_path}")
+
+
+@hooks_app.command("install")
+def hooks_install_cmd(
+    post_merge: bool = typer.Option(True, "--post-merge/--no-post-merge"),
+    post_checkout: bool = typer.Option(False, "--post-checkout/--no-post-checkout"),
+    run_cmd: str = typer.Option("apply", "--run", help="apply, doctor, or sync-check"),
+) -> None:
+    """Install gitmove-managed Git hooks in the current repository."""
+    if post_checkout and post_merge:
+        console.print(
+            "[dim]Tip: use --no-post-merge to install only post-checkout without touching post-merge.[/dim]"
+        )
+    try:
+        hooks_mod.install_hooks(
+            _root(),
+            post_merge=post_merge,
+            post_checkout=post_checkout,
+            run_cmd=run_cmd,
+        )
+    except (GitMoveError, ValueError) as exc:
+        _fail(exc)
+    console.print("[green]Hooks installed.[/green]")
+
+
+@hooks_app.command("uninstall")
+def hooks_uninstall_cmd() -> None:
+    """Remove gitmove-managed Git hooks."""
+    hooks_mod.uninstall_hooks(_root())
+    console.print("[green]Hooks uninstalled.[/green]")
+
+
+@hooks_app.command("status")
+def hooks_status_cmd() -> None:
+    """Show gitmove hook installation status."""
+    status = hooks_mod.hooks_status(_root())
+    table = Table(show_header=True, header_style="bold")
+    table.add_column("Hook")
+    table.add_column("Installed")
+    table.add_column("Run")
+    table.add_row(
+        "post-merge",
+        "yes" if status.post_merge_installed else "no",
+        status.post_merge_run or "—",
+    )
+    table.add_row(
+        "post-checkout",
+        "yes" if status.post_checkout_installed else "no",
+        status.post_checkout_run or "—",
+    )
+    console.print(table)
+
+
+@profile_app.command("list")
+def profile_list_cmd() -> None:
+    """List saved configuration profiles."""
+    names = profile_mod.list_profiles(_root())
+    active = profile_mod.active_profile_name(_root())
+    if not names:
+        console.print("[yellow]No profiles saved.[/yellow]")
+        return
+    for name in names:
+        marker = " (active)" if name == active else ""
+        console.print(f"  {name}{marker}")
+
+
+@profile_app.command("save")
+def profile_save_cmd(
+    name: str = typer.Argument(..., help="Profile name."),
+) -> None:
+    """Save current gitmove.toml as a named profile."""
+    try:
+        profile_mod.save_profile(_root(), name)
+    except GitMoveError as exc:
+        _fail(exc)
+    console.print(f"[green]Profile saved[/green] {name}")
+
+
+@profile_app.command("use")
+def profile_use_cmd(
+    name: str = typer.Argument(..., help="Profile name."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Validate without applying."),
+) -> None:
+    """Switch active configuration to a saved profile."""
+    try:
+        profile_mod.use_profile(_root(), name, dry_run=dry_run)
+    except GitMoveError as exc:
+        _fail(exc)
+    if dry_run:
+        console.print(f"[yellow]Dry run[/yellow] would activate profile {name}")
+    else:
+        console.print(f"[green]Profile active[/green] {name}")
+
+
+@profile_app.command("delete")
+def profile_delete_cmd(
+    name: str = typer.Argument(..., help="Profile name."),
+) -> None:
+    """Delete a saved profile."""
+    try:
+        profile_mod.delete_profile(_root(), name)
+    except GitMoveError as exc:
+        _fail(exc)
+    console.print(f"[green]Profile deleted[/green] {name}")
 
 
 @app.command("gui")
@@ -888,15 +1161,19 @@ def _print_vendor_table(items: list) -> None:
     table.add_column("Repo path")
     table.add_column("URL")
     table.add_column("Ref")
+    table.add_column("Pin")
     table.add_column("Link OK")
     if not items:
-        table.add_row("—", "—", "—", "—", "—")
+        table.add_row("—", "—", "—", "—", "—", "—")
+    cfg = skip_mod.load_config(_root())
+    pin_by_name = {v.name: v.source_pin for v in cfg.vendors}
     for item in items:
         table.add_row(
             item.name,
             item.repo_path,
             item.source_url,
             item.source_ref,
+            pin_by_name.get(item.name) or "—",
             "yes" if item.link_ok else "no",
         )
     console.print(table)
@@ -911,6 +1188,8 @@ projects_app.add_typer(projects_sync_app, name="sync")
 app.add_typer(projects_app, name="projects")
 app.add_typer(vendor_app, name="vendor")
 vendor_app.add_typer(vendor_template_app, name="template")
+app.add_typer(hooks_app, name="hooks")
+app.add_typer(profile_app, name="profile")
 
 
 if __name__ == "__main__":

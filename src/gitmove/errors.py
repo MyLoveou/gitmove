@@ -169,6 +169,51 @@ def _catalog() -> dict[str, GitMoveError]:
             message="未找到 vendor",
             steps=[step("列出 vendor", command="gitmove vendor list")],
         ),
+        "VENDOR_PIN_NOT_FOUND": GitMoveError(
+            code="VENDOR_PIN_NOT_FOUND",
+            message="vendor pin 在 cache 中不存在",
+            steps=[
+                step("检查 pin 名称或 SHA", command="gitmove vendor status <name> --fetch"),
+                step("更新 pin", command="gitmove vendor add ... --pin <tag|sha>"),
+            ],
+        ),
+        "HOOK_EXISTS": GitMoveError(
+            code="HOOK_EXISTS",
+            message="Git hook 已存在且非 gitmove 管理",
+            steps=[
+                step("备份现有 hook 后手动合并", command="mv .git/hooks/post-merge .git/hooks/post-merge.bak"),
+                step("重新安装", command="gitmove hooks install"),
+            ],
+        ),
+        "PROFILE_NOT_FOUND": GitMoveError(
+            code="PROFILE_NOT_FOUND",
+            message="配置 profile 不存在",
+            steps=[step("列出 profile", command="gitmove profile list")],
+        ),
+        "PROFILE_INVALID_NAME": GitMoveError(
+            code="PROFILE_INVALID_NAME",
+            message="profile 名称无效",
+            steps=[step("使用字母数字、下划线或连字符", detail="1-64 字符")],
+        ),
+        "PROFILE_DRY_RUN_FAILED": GitMoveError(
+            code="PROFILE_DRY_RUN_FAILED",
+            message="profile 切换预检未通过 doctor",
+            steps=[step("查看 doctor 详情", command="gitmove doctor")],
+        ),
+        "CONFIG_NOT_FOUND": GitMoveError(
+            code="CONFIG_NOT_FOUND",
+            message="当前仓库无 gitmove 配置",
+            steps=[step("初始化", command="gitmove init")],
+        ),
+        "PROJECTS_UPDATE_FF_FAILED": GitMoveError(
+            code="PROJECTS_UPDATE_FF_FAILED",
+            message="git pull --ff-only 失败",
+            cause="远程存在非 fast-forward 变更，无法自动快进合并。",
+            steps=[
+                step("进入仓库手动处理", command="cd <repo> && git status && git pull"),
+                step("完成后再运行 gitmove sync", command="gitmove sync check"),
+            ],
+        ),
         "TEMPLATE_NOT_FOUND": GitMoveError(
             code="TEMPLATE_NOT_FOUND",
             message="vendor 模板不存在",
@@ -335,6 +380,12 @@ def remediation_for_doctor(category: str, message: str, *, path: str | None = No
             return "VENDOR_LINK_BROKEN", CATALOG["VENDOR_LINK_BROKEN"].steps
         if "未 skip" in message:
             return "VENDOR_TRACKED_NOT_SKIP", CATALOG["VENDOR_TRACKED_NOT_SKIP"].steps
+        if "pin drift" in message:
+            return "VENDOR_FF_BLOCKED", CATALOG["VENDOR_FF_BLOCKED"].steps
+        if "pin not found" in message or "Pin ref not found" in message:
+            return "VENDOR_PIN_NOT_FOUND", CATALOG["VENDOR_PIN_NOT_FOUND"].steps
+        if "落后上游" in message:
+            return "VENDOR_FF_BLOCKED", CATALOG["VENDOR_FF_BLOCKED"].steps
     if category == "config" and "尚未初始化" in message:
         return "REPO_NOT_INIT", CATALOG["REPO_NOT_INIT"].steps
     return None, []

@@ -101,6 +101,33 @@ def test_import_from_repo_reads_gitmove_toml(git_repo: Path, tmp_path: Path) -> 
     assert "config.local.json" in result.skip_paths
 
 
+def test_merge_configs_preserves_link_kind_and_settings() -> None:
+    from gitmove.config import LinkEntry
+
+    target = GitMoveConfig(
+        exclude_linked_paths=False,
+        links=[
+            LinkEntry(
+                "tools/a",
+                "/old/a",
+                "symlink",
+                kind="file",
+                migrate_skipped=["x (symlink)"],
+            )
+        ],
+    )
+    incoming = GitMoveConfig(
+        exclude_linked_paths=True,
+        links=[LinkEntry("tools/b", "/new/b", "junction", kind="directory")],
+    )
+    merged = merge_configs(target, incoming)
+    assert merged.exclude_linked_paths is False
+    by_path = {link.repo_path: link for link in merged.links}
+    assert by_path["tools/a"].kind == "file"
+    assert by_path["tools/a"].migrate_skipped == ["x (symlink)"]
+    assert by_path["tools/b"].kind == "directory"
+
+
 def test_import_from_repo_missing_config(tmp_path: Path, git_repo: Path) -> None:
     other = tmp_path / "empty-repo"
     other.mkdir()

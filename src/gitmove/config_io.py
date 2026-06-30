@@ -19,6 +19,7 @@ def merge_configs(target: GitMoveConfig, incoming: GitMoveConfig) -> GitMoveConf
     skip_paths = sorted(set(target.skip_paths) | set(incoming.skip_paths))
 
     external_base = target.external_base or incoming.external_base
+    exclude_linked_paths = target.exclude_linked_paths
 
     links_by_path = {link.repo_path: link for link in target.links}
     for link in incoming.links:
@@ -41,6 +42,7 @@ def merge_configs(target: GitMoveConfig, incoming: GitMoveConfig) -> GitMoveConf
     return GitMoveConfig(
         skip_paths=skip_paths,
         external_base=external_base,
+        exclude_linked_paths=exclude_linked_paths,
         links=links,
         worktrees=worktrees,
         vendors=vendors,
@@ -74,6 +76,8 @@ def _apply_path_substitutions(
                 repo_path=link.repo_path,
                 external_path=external_path,
                 link_type=link.link_type,
+                kind=link.kind,
+                migrate_skipped=list(link.migrate_skipped),
             )
         )
 
@@ -86,6 +90,7 @@ def _apply_path_substitutions(
     return GitMoveConfig(
         skip_paths=list(cfg.skip_paths),
         external_base=external_base,
+        exclude_linked_paths=cfg.exclude_linked_paths,
         links=links,
         worktrees=worktrees,
         vendors=list(cfg.vendors),

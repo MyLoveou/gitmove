@@ -9,7 +9,8 @@ from typing import Callable
 from gitmove import git
 from gitmove.config import config_path_for_repo
 from gitmove.doctor import apply_all as apply_all_report, run_doctor
-from gitmove.registry import ProjectEntry, list_projects, load_registry, save_registry
+from gitmove.errors import catalog_error
+from gitmove.registry import ProjectEntry, add_project, list_projects, load_registry, save_registry
 from gitmove.sync import (
     StrategyChooser,
     SyncCheckReport,
@@ -385,3 +386,261 @@ def repair_projects(
     if not dry_run:
         save_registry(registry)
     return rows
+
+
+SCAN_EXCLUDE_DIRS = frozenset(
+    {
+        "node_modules",
+        ".git",
+        ".gitmove-vendor",
+        "__pycache__",
+        ".venv",
+        "venv",
+        "vendor",
+        ".hg",
+        ".tox",
+        "dist",
+        "build",
+    }
+)
+
+
+@dataclass
+class ScanRegisterResult:
+    path: Path
+    alias: str
+    registered: bool
+    skipped: bool = False
+    message: str | None = None
+
+
+def _is_git_root(path: Path) -> bool:
+    git_dir = path / ".git"
+    if not git_dir.exists():
+        return False
+    if git_dir.is_file():
+        return False
+    result = git.run_git("rev-parse", "--show-toplevel", cwd=path, check=False)
+    if result.returncode != 0:
+        return False
+    top = Path(result.stdout.strip()).resolve()
+    return top == path.resolve()
+
+
+def scan_git_roots(root: Path, *, max_depth: int = 4) -> list[Path]:
+    root = root.expanduser().resolve()
+    if not root.exists():
+        raise ValueError(f"Scan root does not exist: {root}")
+    found: list[Path] = []
+    seen: set[Path] = set()
+    queue: list[tuple[Path, int]] = [(root, 0)]
+    registered = {entry.path.resolve() for entry in load_registry().projects}
+
+    while queue:
+        current, depth = queue.pop(0)
+        current = current.resolve()
+        if current in seen:
+            continue
+        seen.add(current)
+
+        if _is_git_root(current):
+            if current not in registered:
+                found.append(current)
+            continue
+
+        if depth >= max_depth:
+            continue
+
+        try:
+            children = sorted(current.iterdir(), key=lambda p: p.name.lower())
+        except OSError:
+            continue
+
+        for child in children:
+            if not child.is_dir():
+                continue
+            if child.name in SCAN_EXCLUDE_DIRS:
+                continue
+            queue.append((child, depth + 1))
+
+    return found
+
+
+def _unique_alias(base: str, taken: set[str]) -> str:
+    if base not in taken:
+        return base
+    index = 2
+    while f"{base}-{index}" in taken:
+        index += 1
+    return f"{base}-{index}"
+
+
+def scan_and_register(
+    root: Path,
+    *,
+    max_depth: int = 4,
+    group: str | None = None,
+    dry_run: bool = False,
+    yes: bool = False,
+    chooser: Callable[[Path, str], bool] | None = None,
+) -> list[ScanRegisterResult]:
+    candidates = scan_git_roots(root, max_depth=max_depth)
+    registry = load_registry()
+    taken = {entry.alias for entry in registry.projects}
+    results: list[ScanRegisterResult] = []
+
+    for candidate in candidates:
+        alias = _unique_alias(candidate.name, taken)
+        register = yes
+        if not yes and not dry_run:
+            if chooser is not None:
+                register = chooser(candidate, alias)
+            else:
+                register = False
+                results.append(
+                    ScanRegisterResult(
+                        path=candidate,
+                        alias=alias,
+                        registered=False,
+                        skipped=True,
+                        message="interactive chooser required",
+                    )
+                )
+                continue
+
+        if dry_run:
+            results.append(
+                ScanRegisterResult(path=candidate, alias=alias, registered=False, message="dry-run")
+            )
+            continue
+
+        if register:
+            add_project(candidate, alias=alias, group=group, reg=registry)
+            registry = load_registry()
+            taken.add(alias)
+            results.append(ScanRegisterResult(path=candidate, alias=alias, registered=True))
+        else:
+            results.append(
+                ScanRegisterResult(
+                    path=candidate,
+                    alias=alias,
+                    registered=False,
+                    skipped=True,
+                )
+            )
+
+    return results
+
+
+@dataclass
+class ProjectUpdateRow:
+    alias: str
+    path: Path
+    status: str
+    pulled: bool = False
+    old_commit: str | None = None
+    new_commit: str | None = None
+    message: str | None = None
+    error_code: str | None = None
+
+
+def _repo_head(path: Path) -> str | None:
+    result = git.run_git("rev-parse", "HEAD", cwd=path, check=False)
+    if result.returncode != 0:
+        return None
+    return result.stdout.strip()
+
+
+def _working_tree_dirty(path: Path) -> bool:
+    result = git.run_git("status", "--porcelain", cwd=path, check=False)
+    return bool(result.stdout.strip())
+
+
+def batch_update(
+    entries: list[ProjectEntry],
+    *,
+    ff_only: bool = True,
+    dry_run: bool = False,
+) -> list[ProjectUpdateRow]:
+    rows: list[ProjectUpdateRow] = []
+    for entry in entries:
+        status = project_status(entry.path)
+        if status in {"MISSING", "NOT_GIT"}:
+            rows.append(
+                ProjectUpdateRow(
+                    alias=entry.alias,
+                    path=entry.path,
+                    status=status,
+                    message=status.lower(),
+                )
+            )
+            continue
+
+        if _working_tree_dirty(entry.path):
+            rows.append(
+                ProjectUpdateRow(
+                    alias=entry.alias,
+                    path=entry.path,
+                    status=status,
+                    message="working tree dirty; skipped",
+                )
+            )
+            continue
+
+        old_commit = _repo_head(entry.path)
+        if dry_run:
+            rows.append(
+                ProjectUpdateRow(
+                    alias=entry.alias,
+                    path=entry.path,
+                    status=status,
+                    message="dry-run",
+                    old_commit=old_commit,
+                )
+            )
+            continue
+
+        pull_args = ["pull", "--ff-only"] if ff_only else ["pull"]
+        pull = git.run_git(*pull_args, cwd=entry.path, check=False)
+        new_commit = _repo_head(entry.path)
+        if pull.returncode != 0:
+            stderr = pull.stderr.strip() or pull.stdout.strip() or "git pull failed"
+            error_code = "PROJECTS_UPDATE_FF_FAILED" if ff_only else None
+            rows.append(
+                ProjectUpdateRow(
+                    alias=entry.alias,
+                    path=entry.path,
+                    status=status,
+                    pulled=False,
+                    old_commit=old_commit,
+                    new_commit=new_commit,
+                    message=stderr,
+                    error_code=error_code,
+                )
+            )
+            continue
+
+        rows.append(
+            ProjectUpdateRow(
+                alias=entry.alias,
+                path=entry.path,
+                status=status,
+                pulled=old_commit != new_commit,
+                old_commit=old_commit,
+                new_commit=new_commit,
+                message=None if old_commit != new_commit else "already up to date",
+            )
+        )
+    return rows
+
+
+def batch_update_exit_code(rows: list[ProjectUpdateRow]) -> int:
+    for row in rows:
+        if row.status in {"MISSING", "NOT_GIT"}:
+            continue
+        if row.message in {None, "already up to date", "dry-run", "working tree dirty; skipped"}:
+            continue
+        if row.pulled:
+            continue
+        return 1
+    return 0

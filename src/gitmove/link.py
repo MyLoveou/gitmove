@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from gitmove.config import LinkEntry, normalize_rel, resolve_external_base, resolve_repo_path
+from gitmove.exclude import sync_link_excludes
 from gitmove.platform_util import resolve_link_type, subprocess_no_window_kwargs
 from gitmove.skip import load_config, save_config
 
@@ -37,11 +38,51 @@ def _is_reparse_point(path: Path) -> bool:
         return False
 
 
+def _is_special_file(path: Path) -> bool:
+    try:
+        mode = path.lstat().st_mode
+        return stat.S_ISSOCK(mode) or stat.S_ISFIFO(mode)
+    except OSError:
+        return False
+
+
+def _copy_tree_skip_special(src: Path, dst: Path) -> list[str]:
+    """Copy directory tree, skipping symlinks and special files. Returns skipped descriptions."""
+    skipped: list[str] = []
+    dst.mkdir(parents=True, exist_ok=True)
+
+    for root_dir, dirs, files in os.walk(src):
+        rel_root = Path(root_dir).relative_to(src)
+        dst_dir = dst / rel_root
+        dst_dir.mkdir(parents=True, exist_ok=True)
+
+        for name in list(dirs):
+            item = Path(root_dir) / name
+            rel = (rel_root / name).as_posix()
+            if item.is_symlink():
+                skipped.append(f"{rel} (symlink)")
+                dirs.remove(name)
+            elif _is_special_file(item):
+                skipped.append(f"{rel} (special)")
+                dirs.remove(name)
+
+        for name in files:
+            item = Path(root_dir) / name
+            rel = (rel_root / name).as_posix()
+            if item.is_symlink():
+                skipped.append(f"{rel} (symlink)")
+            elif _is_special_file(item):
+                skipped.append(f"{rel} (special)")
+            else:
+                shutil.copy2(item, dst_dir / name)
+
+    return skipped
+
+
 def _create_junction(link_path: Path, target: Path) -> None:
     link_path.parent.mkdir(parents=True, exist_ok=True)
     if link_path.exists() or link_path.is_symlink():
         raise FileExistsError(f"Already exists: {link_path}")
-    # mklink /J works for directories on Windows without admin (unlike symlinks).
     result = subprocess.run(
         ["cmd", "/c", "mklink", "/J", str(link_path), str(target)],
         capture_output=True,
@@ -61,15 +102,37 @@ def _create_symlink(link_path: Path, target: Path, *, is_dir: bool) -> None:
     link_path.symlink_to(target, target_is_directory=is_dir)
 
 
-def create_link(link_path: Path, target: Path, link_type: str | None = None) -> None:
+def create_link(
+    link_path: Path,
+    target: Path,
+    link_type: str | None = None,
+    *,
+    is_file: bool = False,
+) -> None:
     resolved_type = resolve_link_type(link_type)
-    target.mkdir(parents=True, exist_ok=True)
+    if is_file:
+        target.parent.mkdir(parents=True, exist_ok=True)
+    else:
+        target.mkdir(parents=True, exist_ok=True)
+
     if resolved_type == "junction":
         if not target.is_dir():
             raise ValueError("junction requires a directory target")
         _create_junction(link_path, target)
     else:
-        _create_symlink(link_path, target, is_dir=target.is_dir())
+        _create_symlink(link_path, target, is_dir=not is_file and target.is_dir())
+
+
+def _is_file_link(link_path: Path, target: Path, kind: str | None, link_type: str) -> bool:
+    if kind == "file":
+        return True
+    if kind == "directory":
+        return False
+    if link_path.is_file():
+        return True
+    if target.is_file():
+        return True
+    return resolve_link_type(link_type) == "symlink" and not target.is_dir() and target.exists()
 
 
 def add_link(
@@ -95,36 +158,51 @@ def add_link(
 
     link_path = root / repo_path
     target = Path(external_path)
+    kind: str | None = None
+    migrate_skipped: list[str] = []
 
     if link_path.exists() and not _is_reparse_point(link_path):
         if migrate:
-            if target.exists() and any(target.iterdir()):
-                raise FileExistsError(f"External target not empty: {target}")
+            if target.exists():
+                if target.is_dir() and any(target.iterdir()):
+                    raise FileExistsError(f"External target not empty: {target}")
+                if target.is_file():
+                    raise FileExistsError(f"External target already exists: {target}")
             target.parent.mkdir(parents=True, exist_ok=True)
             if link_path.is_dir():
-                shutil.copytree(link_path, target, dirs_exist_ok=False)
+                migrate_skipped = _copy_tree_skip_special(link_path, target)
                 shutil.rmtree(link_path)
+                kind = "directory"
             else:
-                target.parent.mkdir(parents=True, exist_ok=True)
-                shutil.move(str(link_path), str(target / link_path.name))
-                link_path = root / repo_path
+                shutil.move(str(link_path), str(target))
+                kind = "file"
         else:
             raise FileExistsError(
                 f"{repo_path} exists and is not a link. Use --migrate to move content externally."
             )
 
     if not link_path.exists():
-        use_dir_target = target.is_dir() or resolved_type == "junction"
-        create_link(
-            link_path,
-            target if use_dir_target else target.parent,
-            resolved_type,
-        )
+        is_file = _is_file_link(link_path, target, kind, resolved_type)
+        effective_type = resolved_type
+        if is_file and effective_type == "junction":
+            effective_type = "symlink"
+        create_link(link_path, target, effective_type, is_file=is_file)
+        if kind is None:
+            kind = "file" if is_file else "directory"
+        if effective_type != resolved_type:
+            resolved_type = effective_type
 
-    entry = LinkEntry(repo_path=repo_path, external_path=external_path, link_type=resolved_type)
+    entry = LinkEntry(
+        repo_path=repo_path,
+        external_path=external_path,
+        link_type=resolved_type,
+        kind=kind,
+        migrate_skipped=migrate_skipped,
+    )
     cfg.links = [l for l in cfg.links if l.repo_path != repo_path]
     cfg.links.append(entry)
     save_config(root, cfg)
+    sync_link_excludes(root)
     return entry
 
 
@@ -137,9 +215,12 @@ def apply_links(root: Path) -> list[LinkStatus]:
         target = Path(entry.external_path)
         if link_path.exists():
             continue
-        target.mkdir(parents=True, exist_ok=True)
-        create_link(link_path, target, entry.link_type)
+        is_file = _is_file_link(link_path, target, entry.kind, entry.link_type)
+        if not is_file:
+            target.mkdir(parents=True, exist_ok=True)
+        create_link(link_path, target, entry.link_type, is_file=is_file)
         results[-1] = _status_for_entry(root, entry)
+    sync_link_excludes(root)
     return results
 
 
@@ -188,6 +269,7 @@ def remove_link(root: Path, repo_rel: str, *, keep_external: bool = True) -> Non
 
     cfg.links = [l for l in cfg.links if l.repo_path != repo_path]
     save_config(root, cfg)
+    sync_link_excludes(root)
 
 
 def _status_for_entry(root: Path, entry: LinkEntry) -> LinkStatus:

@@ -48,6 +48,7 @@ def test_config_vendor_roundtrip(git_repo: Path) -> None:
                 cache_path="~/gitmove-vendor/cursor-spec",
                 link_type="junction",
                 auto_skip_tracked=True,
+                source_pin="v1.0.0",
             )
         ],
     )
@@ -57,6 +58,7 @@ def test_config_vendor_roundtrip(git_repo: Path) -> None:
     assert len(loaded.vendors) == 1
     assert loaded.vendors[0].name == "cursor-spec"
     assert loaded.vendors[0].repo_path == ".cursor"
+    assert loaded.vendors[0].source_pin == "v1.0.0"
 
 
 def test_config_vendor_empty_repo_path_rejected(git_repo: Path) -> None:

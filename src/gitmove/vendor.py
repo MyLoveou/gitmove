@@ -12,11 +12,13 @@ from pathlib import Path
 from gitmove import git
 from gitmove.config import VendorEntry, normalize_rel, resolve_repo_path
 from gitmove.errors import GitMoveError, catalog_error
+from gitmove.exclude import sync_link_excludes
 from gitmove import link as link_mod
 from gitmove.platform_util import resolve_link_type
 from gitmove.skip import load_config, save_config
 
 VENDOR_NAME_PATTERN = re.compile(r"^[a-zA-Z0-9_-]{1,64}$")
+PIN_SHA_PATTERN = re.compile(r"^[0-9a-fA-F]{7,40}$")
 
 
 class VendorError(RuntimeError):
@@ -42,6 +44,14 @@ class VendorSyncResult:
     old_commit: str | None = None
     new_commit: str | None = None
     message: str | None = None
+    repo_path: str = ""
+    behind: int = 0
+    dirty: bool = False
+    pinned_drift: bool = False
+    source_pin: str | None = None
+    link_ok: bool = True
+    head_commit: str | None = None
+    error_code: str | None = None
 
 
 def _purge_cache_dir(cache: Path) -> None:
@@ -216,6 +226,7 @@ def add_vendor(
     auto_skip_tracked: bool = True,
     shallow: bool = True,
     include_paths: list[str] | None = None,
+    source_pin: str | None = None,
 ) -> VendorEntry:
     repo_path = normalize_rel(repo_rel)
     resolve_repo_path(root, repo_path)
@@ -251,15 +262,16 @@ def add_vendor(
         raise VendorError("Only one include_paths entry is supported in v1")
     try:
         _clone_cache(cache, source_url, source_ref, shallow=shallow)
-        _validate_include_path(
-            cache,
-            VendorEntry(
-                name=vendor_name,
-                repo_path=repo_path,
-                source_url=source_url,
-                include_paths=normalized_include,
-            ),
+        pin_entry = VendorEntry(
+            name=vendor_name,
+            repo_path=repo_path,
+            source_url=source_url,
+            source_ref=source_ref,
+            include_paths=normalized_include,
+            source_pin=source_pin,
         )
+        _validate_include_path(cache, pin_entry)
+        _apply_pin_after_clone(cache, pin_entry)
     except Exception:
         if cache.exists():
             _purge_cache_dir(cache)
@@ -282,6 +294,7 @@ def add_vendor(
         auto_skip_tracked=auto_skip_tracked,
         shallow=shallow,
         include_paths=normalized_include,
+        source_pin=source_pin,
     )
 
     link_target = _vendor_link_target(cache, entry)
@@ -301,6 +314,7 @@ def add_vendor(
             link_mod._remove_link_path(link_path)
         raise
 
+    sync_link_excludes(root)
     return entry
 
 
@@ -311,6 +325,7 @@ def apply_vendors(root: Path) -> list[VendorStatus]:
         cache = _resolve_cache_path(entry)
         if not cache.exists():
             _clone_cache(cache, entry.source_url, entry.source_ref, shallow=entry.shallow)
+            _apply_pin_after_clone(cache, entry)
         _validate_include_path(cache, entry)
         link_path = root / entry.repo_path
         link_target = _vendor_link_target(cache, entry)
@@ -321,6 +336,7 @@ def apply_vendors(root: Path) -> list[VendorStatus]:
                 link_mod.create_link(link_path, link_target, entry.link_type)
         _apply_skip_for_vendor(root, entry)
         statuses.append(_status_for_entry(root, entry))
+    sync_link_excludes(root)
     return statuses
 
 
@@ -356,6 +372,112 @@ def _remote_ref(entry: VendorEntry) -> str:
     return f"origin/{entry.source_ref}"
 
 
+def _is_pin_sha(pin: str) -> bool:
+    return bool(PIN_SHA_PATTERN.match(pin))
+
+
+def _resolve_git_ref(cache: Path, ref: str, *, shallow: bool = False) -> str:
+    result = git.run_git("rev-parse", "--verify", ref, cwd=cache, check=False)
+    if result.returncode != 0:
+        cause = None
+        if shallow and _is_pin_sha(ref):
+            cause = (
+                "Shallow cache 可能不包含该 commit。"
+                "请使用 vendor add --no-shallow，或移除 vendor 后重新添加。"
+            )
+        raise catalog_error(
+            "VENDOR_PIN_NOT_FOUND",
+            message=f"Pin ref not found in cache: {ref}",
+            cause=cause,
+            pin=ref,
+            cache=str(cache),
+        )
+    return result.stdout.strip()
+
+
+def _fetch_vendor_upstream(cache: Path, entry: VendorEntry) -> None:
+    if entry.source_pin and not _is_pin_sha(entry.source_pin):
+        git.run_git("fetch", "origin", "tag", entry.source_pin, cwd=cache, check=False)
+    elif entry.source_pin and _is_pin_sha(entry.source_pin):
+        pin = entry.source_pin
+        fetched = git.run_git("fetch", "origin", pin, cwd=cache, check=False)
+        if fetched.returncode != 0 and entry.shallow:
+            git.run_git("fetch", "--unshallow", cwd=cache, check=False)
+            git.run_git("fetch", "origin", pin, cwd=cache, check=False)
+    fetch_result = git.run_git("fetch", "origin", cwd=cache, check=False)
+    if fetch_result.returncode != 0:
+        raise catalog_error(
+            "GIT_COMMAND_FAILED",
+            message=fetch_result.stderr.strip() or "git fetch failed",
+        )
+
+
+def _sync_target_ref(entry: VendorEntry) -> str:
+    if entry.source_pin:
+        return entry.source_pin
+    return _remote_ref(entry)
+
+
+def _move_cache_to_ref(
+    cache: Path,
+    target_ref: str,
+    *,
+    allow_detach: bool = False,
+    shallow: bool = False,
+) -> None:
+    target_commit = _resolve_git_ref(cache, target_ref, shallow=shallow)
+    head = _cache_head(cache)
+    if head == target_commit:
+        return
+    merge = git.run_git("merge", "--ff-only", target_commit, cwd=cache, check=False)
+    if merge.returncode == 0:
+        return
+    if not allow_detach:
+        stderr = merge.stderr.strip() or merge.stdout.strip() or "merge --ff-only failed"
+        raise catalog_error(
+            "VENDOR_FF_BLOCKED",
+            message=stderr,
+            ref=target_ref,
+            cache=str(cache),
+        )
+    checkout = git.run_git("checkout", "--detach", target_commit, cwd=cache, check=False)
+    if checkout.returncode != 0:
+        stderr = checkout.stderr.strip() or checkout.stdout.strip() or "checkout failed"
+        raise catalog_error(
+            "VENDOR_FF_BLOCKED",
+            message=stderr,
+            ref=target_ref,
+            cache=str(cache),
+        )
+
+
+def _apply_pin_after_clone(cache: Path, entry: VendorEntry) -> None:
+    if not entry.source_pin:
+        return
+    _fetch_vendor_upstream(cache, entry)
+    _move_cache_to_ref(
+        cache,
+        entry.source_pin,
+        allow_detach=True,
+        shallow=entry.shallow and _is_pin_sha(entry.source_pin or ""),
+    )
+
+
+def vendor_updates_exit_code(results: list[VendorSyncResult]) -> int:
+    if any(not r.ok for r in results):
+        return 1
+    if any(r.behind > 0 or r.pinned_drift for r in results):
+        return 2
+    return 0
+
+
+def check_vendor_updates(root: Path, *, fetch: bool = True) -> list[VendorSyncResult]:
+    results: list[VendorSyncResult] = []
+    for entry in load_config(root).vendors:
+        results.append(vendor_status(root, entry.name, fetch=fetch))
+    return results
+
+
 def vendor_status(root: Path, name_or_path: str, *, fetch: bool = True) -> VendorSyncResult:
     cfg = load_config(root)
     entry = _find_vendor(cfg, name_or_path)
@@ -363,36 +485,99 @@ def vendor_status(root: Path, name_or_path: str, *, fetch: bool = True) -> Vendo
         raise VendorError(f"Vendor not found: {name_or_path}")
     cache = _resolve_cache_path(entry)
     if not cache.exists():
-        return VendorSyncResult(entry.name, ok=False, message="cache missing")
+        return VendorSyncResult(
+            entry.name,
+            ok=False,
+            repo_path=entry.repo_path,
+            source_pin=entry.source_pin,
+            message="cache missing",
+        )
 
     if fetch:
-        fetch_result = git.run_git("fetch", "origin", cwd=cache, check=False)
-        if fetch_result.returncode != 0:
+        try:
+            _fetch_vendor_upstream(cache, entry)
+        except GitMoveError as exc:
             return VendorSyncResult(
                 entry.name,
                 ok=False,
-                message=fetch_result.stderr.strip() or "git fetch failed",
+                repo_path=entry.repo_path,
+                source_pin=entry.source_pin,
+                message=exc.message,
+                error_code=exc.code,
             )
 
-    behind = git.run_git(
-        "rev-list",
-        "--count",
-        f"HEAD..{_remote_ref(entry)}",
-        cwd=cache,
-        check=False,
-    )
+    head = _cache_head(cache)
     dirty = _cache_dirty(cache)
     link_ok = _is_correct_vendor_link(root, entry, cache)
-    parts = [f"commit={_cache_head(cache)}"]
-    if behind.returncode == 0 and behind.stdout.strip().isdigit():
-        count = int(behind.stdout.strip())
-        if count:
-            parts.append(f"behind={count}")
+    behind = 0
+    pinned_drift = False
+
+    if entry.source_pin:
+        try:
+            pin_commit = _resolve_git_ref(
+                cache,
+                entry.source_pin,
+                shallow=entry.shallow and _is_pin_sha(entry.source_pin),
+            )
+            pinned_drift = head != pin_commit
+        except GitMoveError as exc:
+            return VendorSyncResult(
+                entry.name,
+                ok=False,
+                repo_path=entry.repo_path,
+                source_pin=entry.source_pin,
+                head_commit=head,
+                dirty=dirty,
+                link_ok=link_ok,
+                message=exc.message,
+                error_code=exc.code,
+            )
+    else:
+        behind_result = git.run_git(
+            "rev-list",
+            "--count",
+            f"HEAD..{_remote_ref(entry)}",
+            cwd=cache,
+            check=False,
+        )
+        if behind_result.returncode == 0 and behind_result.stdout.strip().isdigit():
+            behind = int(behind_result.stdout.strip())
+
+    parts = [f"commit={head[:7]}"]
+    if entry.source_pin:
+        parts.append(f"pin={entry.source_pin}")
+        if pinned_drift:
+            parts.append("pinned_drift")
+    elif behind:
+        parts.append(f"behind={behind}")
     if dirty:
         parts.append("dirty")
     if not link_ok:
         parts.append("link_broken")
-    return VendorSyncResult(entry.name, ok=link_ok and not dirty, message="; ".join(parts))
+
+    ok = link_ok and not dirty
+    if entry.source_pin:
+        try:
+            _resolve_git_ref(
+                cache,
+                entry.source_pin,
+                shallow=entry.shallow and _is_pin_sha(entry.source_pin),
+            )
+        except GitMoveError:
+            ok = False
+
+    return VendorSyncResult(
+        entry.name,
+        ok=ok,
+        repo_path=entry.repo_path,
+        behind=behind,
+        dirty=dirty,
+        pinned_drift=pinned_drift,
+        source_pin=entry.source_pin,
+        link_ok=link_ok,
+        head_commit=head,
+        message="; ".join(parts),
+    )
 
 
 def sync_vendor(root: Path, name_or_path: str, *, fetch: bool = True) -> VendorSyncResult:
@@ -409,23 +594,14 @@ def sync_vendor(root: Path, name_or_path: str, *, fetch: bool = True) -> VendorS
 
     old_commit = _cache_head(cache)
     if fetch:
-        fetch_result = git.run_git("fetch", "origin", cwd=cache, check=False)
-        if fetch_result.returncode != 0:
-            raise catalog_error(
-                "GIT_COMMAND_FAILED",
-                message=fetch_result.stderr.strip() or "git fetch failed",
-            )
+        _fetch_vendor_upstream(cache, entry)
 
-    merge = git.run_git("merge", "--ff-only", _remote_ref(entry), cwd=cache, check=False)
-    if merge.returncode != 0:
-        stderr = merge.stderr.strip() or merge.stdout.strip() or "merge --ff-only failed"
-        raise catalog_error(
-            "VENDOR_FF_BLOCKED",
-            message=stderr,
-            name=entry.name,
-            ref=entry.source_ref,
-            cache=str(cache),
-        )
+    _move_cache_to_ref(
+        cache,
+        _sync_target_ref(entry),
+        allow_detach=bool(entry.source_pin),
+        shallow=bool(entry.source_pin and entry.shallow and _is_pin_sha(entry.source_pin)),
+    )
 
     new_commit = _cache_head(cache)
     return VendorSyncResult(
@@ -477,6 +653,7 @@ def remove_vendor(
 
     cfg.vendors = [vendor for vendor in cfg.vendors if vendor.name != entry.name]
     save_config(root, cfg)
+    sync_link_excludes(root)
 
 
 def check_vendors_for_doctor(root: Path, *, fetch_behind: bool = False) -> list[tuple[str, str, str]]:
@@ -504,22 +681,44 @@ def check_vendors_for_doctor(root: Path, *, fetch_behind: bool = False) -> list[
 
         if fetch_behind and cache.exists():
             fetch_result = git.run_git("fetch", "origin", cwd=cache, check=False)
+            if entry.source_pin and not _is_pin_sha(entry.source_pin):
+                git.run_git("fetch", "origin", "tag", entry.source_pin, cwd=cache, check=False)
             if fetch_result.returncode == 0:
-                behind = git.run_git(
-                    "rev-list",
-                    "--count",
-                    f"HEAD..{_remote_ref(entry)}",
-                    cwd=cache,
-                    check=False,
-                )
-                if behind.returncode == 0 and behind.stdout.strip().isdigit():
-                    count = int(behind.stdout.strip())
-                    if count > 0:
+                if entry.source_pin:
+                    try:
+                        pin_commit = _resolve_git_ref(cache, entry.source_pin)
+                        if _cache_head(cache) != pin_commit:
+                            issues.append(
+                                (
+                                    "warn",
+                                    "vendor",
+                                    f"vendor {entry.name} pin drift: HEAD != {entry.source_pin}",
+                                )
+                            )
+                    except GitMoveError:
                         issues.append(
                             (
-                                "warn",
+                                "error",
                                 "vendor",
-                                f"vendor {entry.name} 落后上游 {count} 个 commit",
+                                f"vendor {entry.name} pin not found: {entry.source_pin}",
                             )
                         )
+                else:
+                    behind = git.run_git(
+                        "rev-list",
+                        "--count",
+                        f"HEAD..{_remote_ref(entry)}",
+                        cwd=cache,
+                        check=False,
+                    )
+                    if behind.returncode == 0 and behind.stdout.strip().isdigit():
+                        count = int(behind.stdout.strip())
+                        if count > 0:
+                            issues.append(
+                                (
+                                    "warn",
+                                    "vendor",
+                                    f"vendor {entry.name} 落后上游 {count} 个 commit",
+                                )
+                            )
     return issues

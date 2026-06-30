@@ -16,6 +16,8 @@ class LinkEntry:
     repo_path: str
     external_path: str
     link_type: str = "junction"  # junction | symlink
+    kind: str | None = None  # file | directory (directory omitted when saving)
+    migrate_skipped: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -36,12 +38,14 @@ class VendorEntry:
     auto_skip_tracked: bool = True
     shallow: bool = True
     include_paths: list[str] = field(default_factory=list)
+    source_pin: str | None = None
 
 
 @dataclass
 class GitMoveConfig:
     skip_paths: list[str] = field(default_factory=list)
     external_base: str | None = None
+    exclude_linked_paths: bool = True
     links: list[LinkEntry] = field(default_factory=list)
     worktrees: list[WorktreeEntry] = field(default_factory=list)
     vendors: list[VendorEntry] = field(default_factory=list)
@@ -61,17 +65,24 @@ class GitMoveConfig:
         if isinstance(external.get("base"), str):
             cfg.external_base = external["base"]
 
+        settings = data.get("settings", {})
+        if isinstance(settings, dict) and "exclude_linked_paths" in settings:
+            cfg.exclude_linked_paths = bool(settings["exclude_linked_paths"])
+
         links = data.get("links", {})
         if isinstance(links, dict):
             for repo_path, value in links.items():
                 if isinstance(value, str):
                     cfg.links.append(LinkEntry(normalize_rel(repo_path), value))
                 elif isinstance(value, dict):
+                    skipped = value.get("migrate_skipped")
                     cfg.links.append(
                         LinkEntry(
                             normalize_rel(repo_path),
                             value.get("path", ""),
                             value.get("type", "junction"),
+                            kind=value.get("kind"),
+                            migrate_skipped=list(skipped) if isinstance(skipped, list) else [],
                         )
                     )
 
@@ -105,6 +116,7 @@ class GitMoveConfig:
                         auto_skip_tracked=bool(value.get("auto_skip_tracked", True)),
                         shallow=bool(value.get("shallow", True)),
                         include_paths=_load_include_paths(value),
+                        source_pin=_load_optional_str(value, "source_pin"),
                     )
                 )
         for vendor in cfg.vendors:
@@ -112,15 +124,24 @@ class GitMoveConfig:
                 raise ValueError(f"Invalid vendor {vendor.name!r}: repo_path must not be empty")
         return cfg
 
+    def _link_payload(self, link: LinkEntry) -> dict:
+        payload: dict = {
+            "path": link.external_path,
+            "type": link.link_type,
+        }
+        if link.kind:
+            payload["kind"] = link.kind
+        if link.migrate_skipped:
+            payload["migrate_skipped"] = list(link.migrate_skipped)
+        return payload
+
     def save(self, path: Path) -> None:
         payload: dict = {
             "skip-worktree": {"paths": self.skip_paths},
             "external": {"base": self.external_base or ""},
+            "settings": {"exclude_linked_paths": self.exclude_linked_paths},
             "links": {
-                link.repo_path: {
-                    "path": link.external_path,
-                    "type": link.link_type,
-                }
+                link.repo_path: self._link_payload(link)
                 for link in self.links
             },
             "worktrees": {
@@ -144,6 +165,11 @@ class GitMoveConfig:
                         if vendor.include_paths
                         else {}
                     ),
+                    **(
+                        {"source_pin": vendor.source_pin}
+                        if vendor.source_pin
+                        else {}
+                    ),
                 }
                 for vendor in self.vendors
             },
@@ -154,6 +180,13 @@ class GitMoveConfig:
 
 def config_path_for_repo(root: Path) -> Path:
     return root / ".git" / CONFIG_FILENAME
+
+
+def _load_optional_str(value: dict, key: str) -> str | None:
+    raw = value.get(key)
+    if isinstance(raw, str) and raw.strip():
+        return raw.strip()
+    return None
 
 
 def _load_include_paths(value: dict) -> list[str]:
