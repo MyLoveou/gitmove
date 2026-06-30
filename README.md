@@ -10,6 +10,15 @@
 
 支持 **Windows / macOS / Linux**，提供 **CLI + 可视化 GUI**。
 
+## 文档
+
+| 文档 | 说明 |
+|------|------|
+| [docs/README.md](docs/README.md) | 文档索引与需求状态 |
+| [docs/design/overview.md](docs/design/overview.md) | 架构与能力关系 |
+| [docs/product/roadmap.md](docs/product/roadmap.md) | 版本路线图（0.3 多项目 · 0.4 Vendor） |
+| [docs/guides/workflows.md](docs/guides/workflows.md) | 典型工作流与场景选型 |
+
 ## 安装
 
 ```bash
@@ -32,6 +41,7 @@ gitmove gui --repo /path/to/your/repo
 
 GUI 功能：
 
+- 左侧项目列表：注册、切换、批量 doctor/apply
 - 选择 / 切换 Git 仓库
 - 概览页：健康检查、外部目录配置
 - Skip-worktree / 外部链接 / Worktree 分页管理
@@ -50,6 +60,30 @@ gitmove link add tools/personal
 gitmove apply
 gitmove doctor
 ```
+
+## 多项目管理（v0.3）
+
+在用户目录维护项目注册表 `~/.gitmove/projects.toml`（可用环境变量 `GITMOVE_HOME` 覆盖目录）。各仓库策略仍在 `.git/gitmove.toml`，注册表只保存路径指针。
+
+```bash
+# 注册常用仓库
+gitmove projects add . --alias my-app --group work
+gitmove projects add "E:/项目/other" --alias other --group work
+gitmove projects list
+gitmove projects set-default my-app
+
+# 用别名操作任意已注册仓库（无需 cd）
+gitmove -C other doctor
+gitmove -C my-app sync pull
+
+# 批量巡检 / 应用 / 同步
+gitmove projects doctor --all
+gitmove projects apply --all --group work
+gitmove projects sync check --all
+gitmove projects sync pull --all    # 先问项目，再问每个 skip 文件
+```
+
+环境变量 `GITMOVE_REPO` 与 `-C` 类似，可作为默认仓库路径或别名（`-C` 优先级更高）。
 
 ## 多平台说明
 
@@ -75,7 +109,13 @@ gitmove link add tools/personal --type symlink
 | `gitmove doctor` | 诊断配置与实际状态 |
 | `gitmove skip add/remove/list` | skip-worktree 管理 |
 | `gitmove link add/list/remove/set-base` | 外部链接管理 |
-| `gitmove worktree add/list/remove` | worktree 管理 |
+| `gitmove config export/import` | 导出 / 导入配置（含 `--from-repo`） |
+| `gitmove sync check` | 检查 skip 路径的本地 / 远程变更 |
+| `gitmove sync pull` | 交互式 pull 并 reconcile skip 文件 |
+| `gitmove projects list/add/remove/set-default` | 多项目注册表 |
+| `gitmove projects doctor/apply [--all]` | 单仓或批量健康检查 / 应用 |
+| `gitmove projects sync check/pull [--all]` | 单仓或批量 sync |
+| `gitmove -C <path\|alias>` | 全局指定操作目标仓库 |
 
 ## 配置示例
 

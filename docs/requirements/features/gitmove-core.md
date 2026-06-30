@@ -3,6 +3,8 @@
 **状态**：已定稿  
 **版本**：0.2.0
 
+> 扩展能力见 `docs/requirements/features/`（config-sync、multi-project、vendor）及 [docs/README.md](../../README.md)。
+
 ## 目标
 
 在不修改团队 `.gitignore` 的前提下，提供本地 Git 排除管理能力：

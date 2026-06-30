@@ -15,6 +15,8 @@ from gitmove import __version__, git
 from gitmove.config import config_path_for_repo, resolve_external_base
 from gitmove.doctor import apply_all, init_repo, run_doctor
 from gitmove import link as link_mod
+from gitmove import projects as projects_mod
+from gitmove.registry import RegistryError, add_project, list_projects, load_registry, remove_project, touch_last_used
 from gitmove.platform_util import default_link_type, platform_label, resolve_link_type
 from gitmove import skip as skip_mod
 from gitmove import worktree as worktree_mod
@@ -31,19 +33,61 @@ class GitMoveApp(ctk.CTk):
         self._status_var = tk.StringVar(value="请选择 Git 仓库目录")
         self._busy = False
         self._toolbar_buttons: list[ctk.CTkButton] = []
+        self._project_buttons: dict[str, ctk.CTkButton] = {}
+        self._selected_alias: str | None = None
+        self._project_list_frame: ctk.CTkScrollableFrame | None = None
 
         self._build_layout()
         self._style_treeviews()
 
+        self._reload_project_sidebar()
         start = repo_path or str(Path.cwd())
         if git.is_git_repo(Path(start)):
             self.set_repo(Path(start))
+        elif load_registry().default_project:
+            self._select_registered_alias(load_registry().default_project)
+        elif list_projects():
+            self._select_registered_alias(list_projects()[0].alias)
         else:
-            self._update_status("当前目录不是 Git 仓库，请点击「选择仓库」")
+            self._update_status("当前目录不是 Git 仓库，请注册或选择项目")
 
     def _build_layout(self) -> None:
-        header = ctk.CTkFrame(self, corner_radius=0)
-        header.pack(fill="x", padx=12, pady=(12, 6))
+        body = ctk.CTkFrame(self, fg_color="transparent")
+        body.pack(fill="both", expand=True, padx=12, pady=(12, 6))
+
+        sidebar = ctk.CTkFrame(body, width=220)
+        sidebar.pack(side="left", fill="y", padx=(0, 8))
+        sidebar.pack_propagate(False)
+
+        ctk.CTkLabel(sidebar, text="项目", font=ctk.CTkFont(weight="bold")).pack(
+            anchor="w", padx=8, pady=(8, 4)
+        )
+        self._project_list_frame = ctk.CTkScrollableFrame(sidebar, width=200, height=360)
+        self._project_list_frame.pack(fill="both", expand=True, padx=6, pady=4)
+
+        side_actions = ctk.CTkFrame(sidebar, fg_color="transparent")
+        side_actions.pack(fill="x", padx=6, pady=(4, 8))
+        ctk.CTkButton(side_actions, text="添加项目", command=self._add_registered_project).pack(
+            fill="x", pady=2
+        )
+        ctk.CTkButton(side_actions, text="从当前目录添加", command=self._add_current_repo).pack(
+            fill="x", pady=2
+        )
+        ctk.CTkButton(side_actions, text="移除项目", command=self._remove_registered_project).pack(
+            fill="x", pady=2
+        )
+        ctk.CTkButton(side_actions, text="全部 doctor", command=self._batch_doctor).pack(
+            fill="x", pady=2
+        )
+        ctk.CTkButton(side_actions, text="全部 apply", command=self._batch_apply).pack(
+            fill="x", pady=2
+        )
+
+        main_panel = ctk.CTkFrame(body, fg_color="transparent")
+        main_panel.pack(side="left", fill="both", expand=True)
+
+        header = ctk.CTkFrame(main_panel, corner_radius=0)
+        header.pack(fill="x", pady=(0, 6))
 
         ctk.CTkLabel(header, text="Git 仓库", font=ctk.CTkFont(weight="bold")).pack(
             side="left", padx=(8, 8)
@@ -58,8 +102,8 @@ class GitMoveApp(ctk.CTk):
             side="left", padx=4
         )
 
-        toolbar = ctk.CTkFrame(self, fg_color="transparent")
-        toolbar.pack(fill="x", padx=12, pady=(0, 6))
+        toolbar = ctk.CTkFrame(main_panel, fg_color="transparent")
+        toolbar.pack(fill="x", pady=(0, 6))
 
         ctk.CTkButton(toolbar, text="初始化", command=self._on_init).pack(side="left", padx=4)
         ctk.CTkButton(toolbar, text="一键应用", command=self._on_apply).pack(side="left", padx=4)
@@ -75,8 +119,8 @@ class GitMoveApp(ctk.CTk):
             text_color="gray60",
         ).pack(side="right", padx=8)
 
-        self.tabs = ctk.CTkTabview(self)
-        self.tabs.pack(fill="both", expand=True, padx=12, pady=6)
+        self.tabs = ctk.CTkTabview(main_panel)
+        self.tabs.pack(fill="both", expand=True, pady=6)
 
         self.tab_overview = self.tabs.add("概览")
         self.tab_skip = self.tabs.add("Skip-worktree")
@@ -193,10 +237,136 @@ class GitMoveApp(ctk.CTk):
         )
         style.configure("Treeview.Heading", font=("Segoe UI", 10, "bold"))
 
+    def _reload_project_sidebar(self) -> None:
+        if self._project_list_frame is None:
+            return
+        for child in self._project_list_frame.winfo_children():
+            child.destroy()
+        self._project_buttons.clear()
+        for entry in list_projects():
+            label = entry.alias if not entry.group else f"{entry.alias} ({entry.group})"
+            btn = ctk.CTkButton(
+                self._project_list_frame,
+                text=label,
+                anchor="w",
+                fg_color=("gray75", "gray25")
+                if entry.alias == self._selected_alias
+                else None,
+                command=lambda alias=entry.alias: self._select_registered_alias(alias),
+            )
+            btn.pack(fill="x", pady=2)
+            self._project_buttons[entry.alias] = btn
+
+    def _select_registered_alias(self, alias: str) -> None:
+        for entry in list_projects():
+            if entry.alias != alias:
+                continue
+            self._selected_alias = alias
+            try:
+                touch_last_used(alias)
+            except RegistryError:
+                pass
+            self._reload_project_sidebar()
+            if entry.path.exists() and git.is_git_repo(entry.path):
+                self.set_repo(entry.path)
+            else:
+                self.repo_root = entry.path.resolve()
+                self.repo_entry.delete(0, "end")
+                self.repo_entry.insert(0, str(entry.path))
+                self._update_status(f"项目路径不可用: {entry.path}")
+            return
+
+    def _add_registered_project(self) -> None:
+        chosen = filedialog.askdirectory(title="选择要注册的 Git 仓库")
+        if not chosen:
+            return
+        path = Path(chosen)
+        if not git.is_git_repo(path):
+            messagebox.showerror("错误", "所选目录不是 Git 仓库")
+            return
+        try:
+            entry = add_project(path)
+        except RegistryError as exc:
+            messagebox.showerror("错误", str(exc))
+            return
+        self._reload_project_sidebar()
+        self._select_registered_alias(entry.alias)
+
+    def _add_current_repo(self) -> None:
+        root = self._require_repo()
+        if not root:
+            messagebox.showwarning("提示", "请先打开有效的 Git 仓库")
+            return
+        try:
+            entry = add_project(root)
+        except RegistryError as exc:
+            messagebox.showerror("错误", str(exc))
+            return
+        self._reload_project_sidebar()
+        self._select_registered_alias(entry.alias)
+
+    def _remove_registered_project(self) -> None:
+        if not self._selected_alias:
+            messagebox.showinfo("提示", "请先在左侧选择一个项目")
+            return
+        alias = self._selected_alias
+        try:
+            remove_project(alias)
+        except RegistryError as exc:
+            messagebox.showerror("错误", str(exc))
+            return
+        self._selected_alias = None
+        self._reload_project_sidebar()
+        self._update_status(f"已移除项目: {alias}")
+
+    def _batch_doctor(self) -> None:
+        entries = list_projects()
+        if not entries:
+            messagebox.showinfo("提示", "没有已注册的项目")
+            return
+
+        def task() -> list[projects_mod.ProjectBatchRow]:
+            return projects_mod.batch_doctor(entries)
+
+        def on_success(rows: object) -> None:
+            lines = [f"{row.alias}: errors={row.error_count} warns={row.warn_count} ({row.status})" for row in rows]  # type: ignore[union-attr]
+            messagebox.showinfo("全部 doctor 完成", "\n".join(lines))
+
+        self._run_background("正在批量检查…", task, on_success=on_success)
+
+    def _batch_apply(self) -> None:
+        entries = list_projects()
+        if not entries:
+            messagebox.showinfo("提示", "没有已注册的项目")
+            return
+
+        def task() -> list[projects_mod.ProjectBatchRow]:
+            return projects_mod.batch_apply(entries)
+
+        def on_success(rows: object) -> None:
+            lines = [f"{row.alias}: errors={row.error_count} warns={row.warn_count}" for row in rows]  # type: ignore[union-attr]
+            messagebox.showinfo("全部 apply 完成", "\n".join(lines))
+            self.refresh_all()
+
+        self._run_background("正在批量应用…", task, on_success=on_success)
+
     def set_repo(self, root: Path) -> None:
         self.repo_root = root.resolve()
         self.repo_entry.delete(0, "end")
         self.repo_entry.insert(0, str(self.repo_root))
+        matched = False
+        for entry in list_projects():
+            if entry.path == self.repo_root:
+                self._selected_alias = entry.alias
+                matched = True
+                try:
+                    touch_last_used(entry.alias)
+                except RegistryError:
+                    pass
+                break
+        if not matched:
+            self._selected_alias = None
+        self._reload_project_sidebar()
         self.refresh_all()
 
     def _pick_repo(self) -> None:

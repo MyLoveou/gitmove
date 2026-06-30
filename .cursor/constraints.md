@@ -15,8 +15,8 @@
 
 ## 2. 版本 / 范围边界
 
-- **权威能力文档**：`README.md`
-- **路线图**：`docs/product/`（如有）
+- **权威能力文档**：`README.md` + `docs/requirements/features/`
+- **架构与路线图**：`docs/design/overview.md`、`docs/product/roadmap.md`
 - **禁止提前实现**：修改团队 `.gitignore`、强制 push、未经请求 commit/push
 
 ---
@@ -34,7 +34,8 @@
 - 最小 diff；匹配现有命名与分层
 - 未要求不 commit/push；不提交密钥、`.env`、`config.local.json`
 - 完成前：`pip install -e .` 且 `gitmove doctor` 通过
-- **新能力**：`docs/requirements/features/<id>.md` 状态为 **已定稿** 后方可编码
+- **新能力**：对应 `docs/requirements/features/<id>.md` 状态为 **已定稿** 后方可编码
+  - `gitmove-core.md` · `gitmove-config-sync.md` · `gitmove-multi-project.md` · `gitmove-vendor.md`
 
 ---
 
