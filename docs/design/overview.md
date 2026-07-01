@@ -12,6 +12,7 @@
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │  入口：CLI (Typer)  ·  GUI (CustomTkinter)  ·  MCP (gitmove-mcp，0.6 规划)  │
+│  GUI 设计 → docs/design/gui-ux.md · 视觉 → gui-visual-style.md · 需求 → gitmove-gui-ux-redesign.md          │
 └────────────────────────────┬────────────────────────────────┘
                              │
 ┌────────────────────────────▼────────────────────────────────┐
@@ -20,6 +21,7 @@
 │  · sync        业务仓 skip 文件与远程 reconcile                │
 │  · registry    多项目注册表（0.3）                        │
 │  · vendor      上游仓库 → cache → link（0.4）             │
+│  · profile     命名策略快照 + reconcile（0.5.2 设计）     │
 │  · api         JSON Envelope / --json（0.6 规划）           │
 │  · mcp         MCP tools/resources/prompts（0.6 规划）    │
 └────────────────────────────┬────────────────────────────────┘

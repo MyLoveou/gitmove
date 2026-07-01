@@ -6,9 +6,10 @@ import re
 import shutil
 from pathlib import Path
 
-from gitmove.config import CONFIG_FILENAME, config_path_for_repo
-from gitmove.doctor import apply_all, run_doctor
+from gitmove.config import CONFIG_FILENAME, GitMoveConfig, config_path_for_repo
+from gitmove.doctor import run_doctor
 from gitmove.errors import catalog_error
+from gitmove.profile_reconcile import apply_profile_transition
 
 PROFILE_NAME_PATTERN = re.compile(r"^[a-zA-Z0-9_-]{1,64}$")
 PROFILES_DIRNAME = "gitmove.profiles"
@@ -73,8 +74,12 @@ def use_profile(root: Path, name: str, *, dry_run: bool = False) -> None:
             message=f"Profile not found: {name}",
             name=name,
         )
+
+    config = config_path_for_repo(root)
+    old_cfg = GitMoveConfig.load(config) if config.exists() else GitMoveConfig()
+    new_cfg = GitMoveConfig.load(source)
+
     if dry_run:
-        config = config_path_for_repo(root)
         backup = config.read_bytes() if config.exists() else None
         active_backup = None
         active = _active_path(root)
@@ -99,12 +104,10 @@ def use_profile(root: Path, name: str, *, dry_run: bool = False) -> None:
             elif active.exists() and active_backup is None:
                 active.unlink(missing_ok=True)
         return
-    config = config_path_for_repo(root)
-    config.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(source, config)
+
+    apply_profile_transition(root, old_cfg, new_cfg)
     active = _active_path(root)
     active.write_text(f"{name}\n", encoding="utf-8")
-    apply_all(root)
 
 
 def delete_profile(root: Path, name: str) -> None:

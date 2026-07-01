@@ -41,16 +41,45 @@ gitmove --version
 git --version    # 必须可用
 ```
 
-### 2.2 使用打包好的 exe / 二进制
+### 2.2 使用安装程序（Windows 推荐）
 
-从 [GitHub Releases](https://github.com/MyLoveou/gitmove/releases) 下载对应平台产物，解压后将目录加入 PATH，或直接使用：
+从 [GitHub Releases](https://github.com/MyLoveou/gitmove/releases) 下载：
+
+| 文件 | 用途 |
+|------|------|
+| `gitmove-*-windows-x64-setup.exe` | **安装向导**（推荐）：自动安装 CLI + GUI、可选 PATH 与桌面快捷方式 |
+| `gitmove-*-windows-x64.zip` | 便携版：解压即用，需手动加入 PATH |
+
+安装完成后：
+
+```powershell
+gitmove --version
+gitmove-gui
+```
+
+卸载：Windows「设置 → 应用 → 已安装的应用」中找到 gitmove。
+
+### 2.3 使用打包好的 zip / 二进制（macOS / Linux）
+
+从 Releases 下载对应平台产物，解压后将目录加入 PATH，或直接使用：
 
 | 文件 | 用途 |
 |------|------|
 | `gitmove` / `gitmove.exe` | 命令行 |
 | `gitmove-gui` / `gitmove-gui.exe` | 图形界面（无黑窗口） |
 
-### 2.3 启动 GUI
+### 2.4 自行构建安装包（Windows）
+
+需要 [Inno Setup 6](https://jrsoftware.org/isinfo.php)：
+
+```powershell
+cd E:\path\to\gitmove
+.\scripts\build-installer.ps1
+```
+
+产物：`artifacts\gitmove-<版本>-windows-x64-setup.exe`
+
+### 2.5 启动 GUI
 
 ```bash
 gitmove-gui
@@ -230,6 +259,18 @@ gitmove -C <路径或别名> <子命令> ...
 - `repo_path` 必须是你在业务仓内**指定的路径**（含已追踪的 `.cursor`）
 - 目录已存在且非链接时，需加 `--migrate` 才会迁移内容到 cache
 - `vendor sync` 只更新 `~/gitmove-vendor/`，**不** pull 业务仓
+- 已追踪 `.cursor` + 个人 Vendor + Profile 切换：见 [gitmove-cursor-vendor-profile.md](../requirements/features/gitmove-cursor-vendor-profile.md)
+
+### 6.9 策略 Profile
+
+| 命令 | 说明 |
+|------|------|
+| `gitmove profile list` | 列出已保存 profile |
+| `gitmove profile save <name>` | 保存当前 `gitmove.toml` 快照 |
+| `gitmove profile use <name> [--dry-run]` | 切换并 `apply` |
+| `gitmove profile delete <name>` | 删除 profile 快照 |
+
+Profile 存于 `.git/gitmove.profiles/`；当前激活名在 `.git/gitmove.active`。
 
 ---
 
@@ -327,11 +368,27 @@ gitmove doctor
 ```bash
 gitmove vendor add .cursor \
   --from https://github.com/MyLoveou/cursor-project-spec \
-  --name cursor-spec \
+  --ref main \
+  --pin v1.0.0 \
+  --name personal-cursor \
   --migrate
 gitmove doctor
-gitmove vendor sync cursor-spec
+gitmove vendor sync personal-cursor
+gitmove profile save personal
 ```
+
+**公司 / 个人 Profile 切换**：
+
+```bash
+gitmove profile save personal
+gitmove profile save company
+
+gitmove profile use personal
+gitmove profile use company
+gitmove profile use personal --dry-run   # 仅预检，不改动 link/worktree
+```
+
+详见 [gitmove-cursor-vendor-profile.md](../requirements/features/gitmove-cursor-vendor-profile.md)。
 
 团队其他人 clone 后需各自执行 `vendor add` 或 `apply`（不会自动带上游内容到 Git 历史）。
 

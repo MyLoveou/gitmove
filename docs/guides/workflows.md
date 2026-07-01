@@ -98,11 +98,39 @@ gitmove doctor
 ```bash
 gitmove vendor add .cursor \
   --from https://github.com/MyLoveou/cursor-project-spec \
-  --migrate
-# 自动：整仓 link + 批量 skip-worktree
+  --ref main \
+  --pin v1.0.0 \
+  --migrate \
+  --name personal-cursor
+# 自动：整仓 link + 批量 skip-worktree + info/exclude
 gitmove doctor
-gitmove vendor sync .cursor    # 仅更新上游；冲突则中止
+gitmove vendor sync personal-cursor
 ```
+
+> 完整规格见 [gitmove-cursor-vendor-profile.md](../requirements/features/gitmove-cursor-vendor-profile.md)。
+
+### 场景 B+C：公司 / 个人 Profile 切换
+
+业务仓 `.cursor` 已追踪，且需在公司基线与个人 Vendor 间切换：
+
+```bash
+# 1. 按场景 B 建立 personal vendor，保存 personal profile
+gitmove profile save personal
+
+# 2. 建立 company profile（无 vendor；可选少量 skip）
+gitmove vendor remove personal-cursor --keep-skip   # Phase 1：切换前手动拆除
+git checkout -- .cursor
+gitmove profile save company
+
+# 3. 日常切换
+gitmove profile use personal
+gitmove vendor sync personal-cursor
+
+gitmove profile use company
+gitmove doctor
+```
+
+`profile use` 自动 reconcile（拆/建 vendor link、unskip、restore、exclude）。`--dry-run` 仅预检，不改动磁盘。
 
 ### 场景 C：公司工具仓挂到 `tools/`
 
@@ -133,6 +161,7 @@ gitmove vendor add tools \
 | 配置换机迁移 | config import/export |
 | 业务仓远程改了 skip 文件 | sync pull |
 | 管多个业务仓 | projects |
+| 已追踪 `.cursor` + 个人 Vendor + 公司/个人切换 | vendor + profile（见 [需求](../requirements/features/gitmove-cursor-vendor-profile.md)） |
 
 ---
 

@@ -318,6 +318,37 @@ def add_vendor(
     return entry
 
 
+def ensure_vendor_mount(root: Path, entry: VendorEntry) -> None:
+    """Ensure vendor cache and repo link exist; migrate existing repo_path content if needed."""
+    cache = _resolve_cache_path(entry)
+    if not cache.exists():
+        _clone_cache(cache, entry.source_url, entry.source_ref, shallow=entry.shallow)
+        _apply_pin_after_clone(cache, entry)
+    _validate_include_path(cache, entry)
+
+    link_path = root / entry.repo_path
+    link_target = _vendor_link_target(cache, entry)
+
+    if _is_correct_vendor_link(root, entry, cache):
+        _apply_skip_for_vendor(root, entry)
+        return
+
+    if link_path.exists() and not link_mod._is_reparse_point(link_path):
+        migrate_target = (
+            cache / normalize_rel(entry.include_paths[0]) if entry.include_paths else cache
+        )
+        _migrate_repo_path_to_cache(link_path, cache, migrate_target=migrate_target)
+        _commit_cache_changes(cache)
+
+    if not _is_correct_vendor_link(root, entry, cache):
+        if link_path.exists() and link_mod._is_reparse_point(link_path):
+            link_mod._remove_link_path(link_path)
+        if not link_path.exists():
+            link_mod.create_link(link_path, link_target, entry.link_type)
+
+    _apply_skip_for_vendor(root, entry)
+
+
 def apply_vendors(root: Path) -> list[VendorStatus]:
     cfg = load_config(root)
     statuses: list[VendorStatus] = []

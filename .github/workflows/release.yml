@@ -53,6 +53,14 @@ jobs:
       - name: Build executables
         run: python scripts/build.py --target all --onefile
 
+      - name: Install Inno Setup (Windows)
+        if: runner.os == 'Windows'
+        run: choco install innosetup -y
+
+      - name: Build Windows installer
+        if: runner.os == 'Windows'
+        run: python scripts/build_installer.py
+
       - name: Smoke test CLI
         shell: bash
         run: |

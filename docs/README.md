@@ -21,7 +21,7 @@ docs/
     ├── gitmove-config-sync.md 配置导入导出与远程 sync（v0.2.x，已实现）
     ├── gitmove-multi-project.md 多项目管理（v0.3.x，已实现）
     ├── gitmove-vendor.md     上游依赖 Vendor（v0.4.0，已实现）
-    └── gitmove-0.5-enhancements.md  0.5+ 高契合增强（已定稿）
+    └── gitmove-gui-ux-redesign.md  GUI 场景指引与交互优化（评审中）
     └── gitmove-ai-integration.md    AI/MCP/Skill 集成（草案）
 ```
 
@@ -34,6 +34,9 @@ docs/
 | [gitmove-multi-project](requirements/features/gitmove-multi-project.md) | 0.3.x | **已定稿 · 已实现** | 项目注册表、批量操作、`-C` |
 | [gitmove-vendor](requirements/features/gitmove-vendor.md) | 0.4.0 | **已定稿 · 已实现** | 上游整仓 link、vendor sync |
 | [gitmove-0.5-enhancements](requirements/features/gitmove-0.5-enhancements.md) | 0.5.0 | **已定稿 · 已实现** | F13 错误引导、Vendor 模板/shallow/include、repair、GUI batch sync |
+| [gitmove-cursor-vendor-profile](requirements/features/gitmove-cursor-vendor-profile.md) | 0.5.x | **已定稿 · Phase 2 已实现** | 已追踪 `.cursor` + 个人 Vendor + Profile 切换（方案 A+C） |
+| [gitmove-gui-ux-redesign](requirements/features/gitmove-gui-ux-redesign.md) | 0.5.3 | **评审中 · Phase 1 已实现** | GUI 场景指引、Vendor/Profile Tab、概览可行动化 |
+| [gui-vendor-phase2](design/gui-vendor-phase2.md) | 0.5.3 | **设计稿** | Vendor Tab 可视化 add/sync/remove |
 | [gitmove-ai-integration](requirements/features/gitmove-ai-integration.md) | 0.6.0 | **草案 · 设计已完成** | MCP、Skill、CLI `--json` |
 
 ## 配置存储（两层模型）

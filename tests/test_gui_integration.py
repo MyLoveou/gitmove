@@ -72,7 +72,12 @@ def test_gui_refresh_updates_status(gui_app: GitMoveApp, git_repo: Path) -> None
 def test_gui_render_overview(gui_app: GitMoveApp, git_repo: Path) -> None:
     report = DoctorReport(issues=[DoctorIssue("info", "general", "所有检查通过")])
     gui_app._render_overview(git_repo, report)
-    assert "所有检查通过" in gui_app.overview_text.get("1.0", "end")
+    children = gui_app.overview_issue_tree.get_children()
+    assert len(children) == 1
+    values = gui_app.overview_issue_tree.item(children[0], "values")
+    assert "所有检查通过" in values[2]
+    assert gui_app.overview_health_bar._error_var.get() == "0 错误"
+    assert gui_app.overview_health_bar._info_var.get() == "1 提示"
 
 
 def test_gui_busy_ignores_duplicate_jobs(gui_app: GitMoveApp, git_repo: Path) -> None:

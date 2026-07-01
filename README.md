@@ -23,6 +23,29 @@
 
 ## 安装
 
+### 方式一：Windows 安装程序（推荐）
+
+从 [GitHub Releases](https://github.com/MyLoveou/gitmove/releases) 下载 `gitmove-*-windows-x64-setup.exe`，按向导安装即可。
+
+安装程序会：
+
+- 将 `gitmove.exe`、`gitmove-gui.exe` 安装到 `Program Files\gitmove`
+- 可选：加入系统 PATH、创建桌面快捷方式
+- 提供卸载入口（「添加或删除程序」）
+
+安装后在终端验证：
+
+```powershell
+gitmove --version
+gitmove-gui
+```
+
+### 方式二：解压 zip / 从源码
+
+**Release 压缩包**（各平台 zip/tar.gz）：解压后将目录加入 PATH。
+
+**开发安装**：
+
 ```bash
 cd /path/to/gitmove
 pip install -e .

@@ -10,9 +10,22 @@ from typing import Any
 import customtkinter as ctk
 
 from gitmove.errors import GitMoveError, RemediationStep
+from gitmove.gui import theme as theme_mod
+from gitmove.gui.widgets import primary_button, secondary_button
+
+
+def format_error_detail(err: GitMoveError) -> str:
+    lines = [f"code: {err.code}"]
+    if err.context:
+        for key, value in err.context.items():
+            lines.append(f"{key}: {value}")
+    return "\n".join(lines)
 
 
 class ErrorDialog(ctk.CTkToplevel):
+    _BASE_HEIGHT = 400
+    _DETAIL_EXTRA = 120
+
     def __init__(
         self,
         master: tk.Misc,
@@ -21,31 +34,77 @@ class ErrorDialog(ctk.CTkToplevel):
         on_action: Callable[[str, GitMoveError], None] | None = None,
     ) -> None:
         super().__init__(master)
+        palette = theme_mod.resolve_theme()
         self.title("gitmove 错误")
-        self.geometry("520x420")
-        self.minsize(480, 320)
+        self.geometry("540x400")
+        self.minsize(480, 280)
         self.grab_set()
         self.focus_force()
 
+        self._detail_visible = False
+        self._detail_box = ctk.CTkTextbox(self, height=100, wrap="word", **theme_mod.textbox_kwargs())
+        self._detail_box.insert("end", format_error_detail(err))
+        self._detail_box.configure(state="disabled")
+
+        footer = ctk.CTkFrame(self, fg_color="transparent")
+        footer.pack(side="bottom", fill="x", padx=16, pady=(0, 16))
+
+        btn_row = ctk.CTkFrame(footer, fg_color="transparent")
+        btn_row.pack(side="bottom", fill="x", pady=(8, 0))
+
+        primary = _primary_action(err.steps)
+        if primary and on_action:
+            primary_button(
+                btn_row,
+                text=_action_label(primary),
+                command=lambda: self._run_action(primary, err, on_action),
+            ).pack(side="left", padx=(0, 8))
+
+        if err.steps and err.steps[0].command:
+            secondary_button(
+                btn_row,
+                text="复制命令",
+                command=lambda: self._copy_command(err.steps[0].command or ""),
+            ).pack(side="left", padx=(0, 8))
+
+        secondary_button(btn_row, text="关闭", command=self.destroy).pack(side="right")
+
+        self._toggle_btn = secondary_button(
+            footer,
+            text="▼ 技术详情",
+            command=self._toggle_detail,
+            anchor="w",
+            height=28,
+        )
+        self._toggle_btn.pack(side="bottom", anchor="w", pady=(4, 0))
+
+        body = ctk.CTkFrame(self, fg_color="transparent")
+        body.pack(side="top", fill="both", expand=True, padx=16, pady=(16, 8))
+
         ctk.CTkLabel(
-            self,
+            body,
             text=f"✗ {err.message}",
-            font=ctk.CTkFont(size=14, weight="bold"),
-            text_color="#e74c3c",
-            wraplength=480,
+            font=theme_mod.font_section(),
+            text_color=palette.error,
+            wraplength=500,
             justify="left",
-        ).pack(anchor="w", padx=16, pady=(16, 8))
+        ).pack(anchor="w", pady=(0, 8))
 
         if err.cause:
-            ctk.CTkLabel(self, text="原因", font=ctk.CTkFont(weight="bold")).pack(anchor="w", padx=16)
-            ctk.CTkLabel(self, text=err.cause, wraplength=480, justify="left").pack(
-                anchor="w", padx=16, pady=(0, 8)
-            )
+            ctk.CTkLabel(body, text="原因", font=theme_mod.font_body()).pack(anchor="w")
+            ctk.CTkLabel(
+                body,
+                text=err.cause,
+                font=theme_mod.font_caption(),
+                text_color=palette.text_primary,
+                wraplength=500,
+                justify="left",
+            ).pack(anchor="w", pady=(0, 8))
 
         if err.steps:
-            ctk.CTkLabel(self, text="建议操作", font=ctk.CTkFont(weight="bold")).pack(anchor="w", padx=16)
-            steps_box = ctk.CTkTextbox(self, height=140, wrap="word")
-            steps_box.pack(fill="both", expand=True, padx=16, pady=4)
+            ctk.CTkLabel(body, text="建议操作", font=theme_mod.font_body()).pack(anchor="w")
+            steps_box = ctk.CTkTextbox(body, height=120, wrap="word", **theme_mod.textbox_kwargs())
+            steps_box.pack(fill="x", pady=(4, 0))
             for index, step in enumerate(err.steps, start=1):
                 steps_box.insert("end", f"{index}. {step.title}\n")
                 if step.detail:
@@ -54,48 +113,29 @@ class ErrorDialog(ctk.CTkToplevel):
                     steps_box.insert("end", f"   {step.command}\n")
             steps_box.configure(state="disabled")
 
-        self._detail_visible = False
-        self._detail_box = ctk.CTkTextbox(self, height=80, wrap="word")
-        detail_text = f"code: {err.code}\n{err.context}\n"
-        self._detail_box.insert("end", detail_text)
-        self._detail_box.configure(state="disabled")
-
-        btn_row = ctk.CTkFrame(self, fg_color="transparent")
-        btn_row.pack(fill="x", padx=16, pady=12)
-
-        primary = _primary_action(err.steps)
-        if primary and on_action:
-            ctk.CTkButton(
-                btn_row,
-                text=_action_label(primary),
-                command=lambda: self._run_action(primary, err, on_action),
-            ).pack(side="left", padx=(0, 8))
-
-        if err.steps and err.steps[0].command:
-            ctk.CTkButton(
-                btn_row,
-                text="复制命令",
-                command=lambda: self._copy_command(err.steps[0].command or ""),
-            ).pack(side="left", padx=(0, 8))
-
-        ctk.CTkButton(btn_row, text="关闭", command=self.destroy).pack(side="right")
-
-        toggle_row = ctk.CTkFrame(self, fg_color="transparent")
-        toggle_row.pack(fill="x", padx=16, pady=(0, 8))
-        ctk.CTkButton(
-            toggle_row,
-            text="▼ 技术详情",
-            fg_color="transparent",
-            text_color=("gray40", "gray60"),
-            command=self._toggle_detail,
-        ).pack(anchor="w")
-
     def _toggle_detail(self) -> None:
         if self._detail_visible:
             self._detail_box.pack_forget()
+            self._toggle_btn.configure(text="▼ 技术详情")
+            self._resize_to_content(self._BASE_HEIGHT)
         else:
-            self._detail_box.pack(fill="x", padx=16, pady=(0, 8))
+            self._detail_box.pack(
+                in_=self._toggle_btn.master,
+                side="bottom",
+                fill="both",
+                expand=False,
+                pady=(0, 4),
+                before=self._toggle_btn,
+            )
+            self._toggle_btn.configure(text="▲ 技术详情")
+            self._resize_to_content(self._BASE_HEIGHT + self._DETAIL_EXTRA)
         self._detail_visible = not self._detail_visible
+
+    def _resize_to_content(self, min_height: int) -> None:
+        self.update_idletasks()
+        height = max(min_height, self.winfo_reqheight())
+        width = max(540, self.winfo_width())
+        self.geometry(f"{width}x{height}")
 
     def _copy_command(self, command: str) -> None:
         self.clipboard_clear()
