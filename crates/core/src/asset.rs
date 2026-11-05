@@ -6,6 +6,7 @@ use rusqlite::params;
 use serde::{Deserialize, Serialize};
 
 use crate::error::{CoreError, CoreResult};
+use crate::git;
 use crate::paths;
 
 #[derive(Debug, Clone, Deserialize)]
@@ -486,4 +487,115 @@ pub fn restore(root: &Path, snapshot: &str, only: Option<&str>) -> CoreResult<Ta
         "ASSET_RESTORE_FAILED",
         format!("所有目标都无法恢复快照 {snapshot}"),
     ))
+}
+
+
+#[derive(Debug, Clone, Serialize)]
+pub struct GuardRow {
+    pub path: String,
+    pub mb: f64,
+}
+
+/// Retention passthrough: gitmove never re-implements restic's policy language.
+pub fn prune(
+    root: &Path,
+    keep_daily: Option<u32>,
+    keep_weekly: Option<u32>,
+    keep_monthly: Option<u32>,
+    keep_last: Option<u32>,
+    dry_run: bool,
+    only: Option<&str>,
+) -> CoreResult<Vec<TargetResult>> {
+    if keep_daily.is_none() && keep_weekly.is_none() && keep_monthly.is_none() && keep_last.is_none() {
+        return Err(CoreError::new(
+            "PRUNE_POLICY_REQUIRED",
+            "至少给一个 --keep-daily/--keep-weekly/--keep-monthly/--keep-last",
+        ));
+    }
+    let targets: Vec<Target> = load_targets(root)
+        .into_iter()
+        .filter(|target| only.map(|name| name == target.name).unwrap_or(true))
+        .filter(|target| target.enabled)
+        .collect();
+    let mut results = Vec::new();
+    for target in targets {
+        let mut args: Vec<String> = vec!["forget".into(), "--prune".into()];
+        for (flag, value) in [
+            ("--keep-daily", keep_daily),
+            ("--keep-weekly", keep_weekly),
+            ("--keep-monthly", keep_monthly),
+            ("--keep-last", keep_last),
+        ] {
+            if let Some(value) = value {
+                args.push(flag.to_string());
+                args.push(value.to_string());
+            }
+        }
+        if dry_run {
+            args.push("--dry-run".into());
+        }
+        let refs: Vec<&str> = args.iter().map(String::as_str).collect();
+        let outcome = run_restic(&target, root, &refs);
+        let result = match outcome {
+            Ok((true, stdout, _)) => TargetResult {
+                target: target.name,
+                ok: true,
+                snapshot_id: None,
+                files: 0,
+                bytes: 0,
+                message: stdout.trim().chars().take(300).collect(),
+            },
+            Ok((false, _stdout, stderr)) => TargetResult {
+                target: target.name,
+                ok: false,
+                snapshot_id: None,
+                files: 0,
+                bytes: 0,
+                message: stderr.trim().chars().take(300).collect(),
+            },
+            Err(err) => TargetResult {
+                target: target.name,
+                ok: false,
+                snapshot_id: None,
+                files: 0,
+                bytes: 0,
+                message: err.message,
+            },
+        };
+        results.push(result);
+    }
+    Ok(results)
+}
+
+fn max_file_mb(root: &Path) -> u64 {
+    let Ok(raw) = std::fs::read_to_string(paths::config_path(root)) else {
+        return 5;
+    };
+    let Ok(parsed) = toml::from_str::<toml::Value>(&raw) else {
+        return 5;
+    };
+    parsed
+        .get("depot")
+        .and_then(|depot| depot.get("max_file_mb"))
+        .and_then(|value| value.as_integer())
+        .map(|value| value as u64)
+        .unwrap_or(5)
+}
+
+/// Staged files above `[depot] max_file_mb` must never enter git history.
+pub fn guard(root: &Path) -> CoreResult<Vec<GuardRow>> {
+    let limit = max_file_mb(root) * 1024 * 1024;
+    let raw = git::run(root, &["diff", "--cached", "--name-only", "-z"])?;
+    let mut rows = Vec::new();
+    for path in raw.split('\0').filter(|value| !value.is_empty()) {
+        let file = root.join(path);
+        let Ok(meta) = file.metadata() else { continue };
+        if meta.len() as u64 > limit {
+            rows.push(GuardRow {
+                path: path.to_string(),
+                mb: meta.len() as f64 / (1024.0 * 1024.0),
+            });
+        }
+    }
+    Ok(rows)
 }

@@ -114,6 +114,24 @@ export interface AssetTargetResult {
   message: string
 }
 
+export interface MergeItem {
+  path: string
+  action: string
+}
+
+export interface MergeConflict {
+  path: string
+  reason: string
+}
+
+export interface MergePlanPayload {
+  base: string
+  ours: string
+  theirs: string
+  merged: MergeItem[]
+  conflicts: MergeConflict[]
+}
+
 export interface AppInfo {
   version: string
   platform: string
@@ -136,5 +154,15 @@ export type Op =
   | { op: 'asset.status'; workspace: string }
   | { op: 'asset.init'; workspace: string; target?: string }
   | { op: 'asset.backup'; workspace: string; target?: string }
+  | {
+      op: 'asset.merge'
+      workspace: string
+      base: string
+      ours: string
+      theirs: string
+      target?: string
+      apply?: boolean
+      force?: boolean
+    }
 
 export const IPC_INVOKE = 'gitmove:invoke'

@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::error::CoreResult;
+use crate::error::{CoreError, CoreResult};
 use crate::git;
 use crate::paths;
 
@@ -225,4 +225,99 @@ pub fn dirty_members(root: &Path) -> CoreResult<Vec<String>> {
 /// Members that can accept `ws contribute` (editable upstreams only).
 pub fn is_contributable(role: &str) -> bool {
     role == "editable"
+}
+
+
+#[derive(Debug, Clone, Serialize)]
+pub struct BranchRow {
+    pub member: String,
+    pub branch: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct MergeOutcome {
+    pub branch: String,
+    pub merged: Vec<String>,
+    pub conflicts: Vec<String>,
+    pub message: String,
+}
+
+/// Create the branch in every member repository (idempotent).
+pub fn branch_create(root: &Path, name: &str) -> CoreResult<Vec<BranchRow>> {
+    let (_, members, _) = load(root)?;
+    let mut rows = Vec::new();
+    for member in members {
+        if !member.path.exists() || !git::is_repo(&member.path) {
+            continue;
+        }
+        let current = git::run_allow_fail(&member.path, &["rev-parse", "--abbrev-ref", "HEAD"])
+            .map(|value| value.trim().to_string())
+            .unwrap_or_default();
+        if current != name {
+            let exists = git::run_allow_fail(&member.path, &["rev-parse", "--verify", name]).is_some();
+            let args = if exists { vec!["checkout", name] } else { vec!["checkout", "-b", name] };
+            git::run(&member.path, &args)?;
+        }
+        rows.push(BranchRow { member: member.name, branch: name.to_string() });
+    }
+    Ok(rows)
+}
+
+pub fn branch_list(root: &Path) -> CoreResult<Vec<BranchRow>> {
+    let (_, members, _) = load(root)?;
+    Ok(members
+        .into_iter()
+        .filter(|member| member.path.exists() && git::is_repo(&member.path))
+        .map(|member| BranchRow {
+            branch: git::run_allow_fail(&member.path, &["rev-parse", "--abbrev-ref", "HEAD"])
+                .map(|value| value.trim().to_string())
+                .unwrap_or_default(),
+            member: member.name,
+        })
+        .collect())
+}
+
+/// Switch every member to `name`; refuses when a member has uncommitted changes.
+pub fn branch_switch(root: &Path, name: &str) -> CoreResult<Vec<BranchRow>> {
+    let (_, members, _) = load(root)?;
+    let dirty: Vec<String> = members
+        .iter()
+        .filter(|member| member.path.exists() && git::is_repo(&member.path) && git::is_dirty(&member.path))
+        .map(|member| member.name.clone())
+        .collect();
+    if !dirty.is_empty() {
+        return Err(CoreError::new("WORKSPACE_DIRTY", format!("成员有未提交改动: {}", dirty.join(", "))));
+    }
+    for member in &members {
+        if member.path.exists() && git::is_repo(&member.path) {
+            git::run(&member.path, &["checkout", name])?;
+        }
+    }
+    branch_list(root)
+}
+
+/// Merge `name` into every member; conflicts stop the merge per member (git semantics).
+pub fn merge(root: &Path, name: &str) -> CoreResult<MergeOutcome> {
+    let (_, members, _) = load(root)?;
+    let mut merged = Vec::new();
+    let mut conflicts = Vec::new();
+    for member in members {
+        if !member.path.exists() || !git::is_repo(&member.path) {
+            continue;
+        }
+        match git::run(&member.path, &["merge", name]) {
+            Ok(_) => merged.push(member.name.clone()),
+            Err(_) => {
+                let files = git::run_allow_fail(&member.path, &["diff", "--name-only", "--diff-filter=U"])
+                    .unwrap_or_default();
+                conflicts.push(format!("{}: {}", member.name, files.trim()));
+            }
+        }
+    }
+    let message = if conflicts.is_empty() {
+        format!("merged {name} into {} repositories", merged.len())
+    } else {
+        "合并停在冲突处（未自动解决）".to_string()
+    };
+    Ok(MergeOutcome { branch: name.to_string(), merged, conflicts, message })
 }

@@ -75,6 +75,11 @@ enum Command {
         #[command(subcommand)]
         action: PolicyAction,
     },
+    /// Configuration export/import.
+    Config {
+        #[command(subcommand)]
+        action: ConfigAction,
+    },
     /// MCP server over stdio (JSON-RPC 2.0).
     Mcp,
 }
@@ -99,6 +104,13 @@ enum RevAction {
 #[derive(Subcommand)]
 enum WsAction {
     Status,
+    #[command(name = "branch-list")]
+    BranchList,
+    #[command(name = "branch-create")]
+    BranchCreate { name: String },
+    #[command(name = "branch-switch")]
+    BranchSwitch { name: String },
+    Merge { branch: String },
     Diff {
         member: String,
     },
@@ -154,6 +166,21 @@ enum AssetAction {
         #[arg(long)]
         target: Option<String>,
     },
+    Prune {
+        #[arg(long)]
+        keep_daily: Option<u32>,
+        #[arg(long)]
+        keep_weekly: Option<u32>,
+        #[arg(long)]
+        keep_monthly: Option<u32>,
+        #[arg(long)]
+        keep_last: Option<u32>,
+        #[arg(long)]
+        dry_run: bool,
+        #[arg(long)]
+        target: Option<String>,
+    },
+    Guard,
     Restore {
         snapshot: String,
         #[arg(long)]
@@ -209,6 +236,15 @@ enum WorktreeAction {
     },
     List,
     Remove { path: String },
+}
+
+#[derive(Subcommand)]
+enum ConfigAction {
+    Export {
+        #[arg(long)]
+        out: Option<String>,
+    },
+    Import { path: String },
 }
 
 #[derive(Subcommand)]
@@ -268,6 +304,18 @@ fn run(cli: &Cli, root: &Path) -> Result<Envelope<serde_json::Value>, CoreError>
         )),
         Command::Workspace { action } => match action {
             WsAction::Status => Ok(success("gitmove_ws_status", gitmove_core::workspace::status(root)?)),
+            WsAction::BranchList => Ok(success("gitmove_ws_branch_list", gitmove_core::workspace::branch_list(root)?)),
+            WsAction::BranchCreate { name } => Ok(success(
+                "gitmove_ws_branch_create",
+                gitmove_core::workspace::branch_create(root, name)?,
+            )),
+            WsAction::BranchSwitch { name } => Ok(success(
+                "gitmove_ws_branch_switch",
+                gitmove_core::workspace::branch_switch(root, name)?,
+            )),
+            WsAction::Merge { branch } => {
+                Ok(success("gitmove_ws_merge", gitmove_core::workspace::merge(root, branch)?))
+            }
             WsAction::Diff { member } => Ok(success("gitmove_ws_diff", gitmove_core::contribute::diff(root, member)?)),
             WsAction::Contribute { member, branch, no_push } => Ok(success(
                 "gitmove_ws_contribute",
@@ -327,6 +375,11 @@ fn run(cli: &Cli, root: &Path) -> Result<Envelope<serde_json::Value>, CoreError>
                     Ok(success("gitmove_asset_merge_plan", plan))
                 }
             }
+            AssetAction::Prune { keep_daily, keep_weekly, keep_monthly, keep_last, dry_run, target } => Ok(success(
+                "gitmove_asset_prune",
+                gitmove_core::asset::prune(root, *keep_daily, *keep_weekly, *keep_monthly, *keep_last, *dry_run, target.as_deref())?,
+            )),
+            AssetAction::Guard => Ok(success("gitmove_asset_guard", gitmove_core::asset::guard(root)?)),
             AssetAction::Status => Ok(success("gitmove_asset_status", gitmove_core::asset::status(root))),
             AssetAction::Backup { target } => {
                 let outcome = gitmove_core::asset::backup(root, target.as_deref(), None)?;
@@ -341,6 +394,22 @@ fn run(cli: &Cli, root: &Path) -> Result<Envelope<serde_json::Value>, CoreError>
             AssetAction::Restore { snapshot, target } => Ok(success(
                 "gitmove_asset_restore",
                 gitmove_core::asset::restore(root, snapshot, target.as_deref())?,
+            )),
+        },
+        Command::Config { action } => match action {
+            ConfigAction::Export { out } => {
+                let text = gitmove_core::config::export(root)?;
+                match out {
+                    Some(path) => {
+                        std::fs::write(path, &text)?;
+                        Ok(success("gitmove_config_export", serde_json::json!({ "path": path })))
+                    }
+                    None => Ok(success("gitmove_config_export", serde_json::json!({ "toml": text }))),
+                }
+            }
+            ConfigAction::Import { path } => Ok(success(
+                "gitmove_config_import",
+                gitmove_core::config::import(root, std::path::Path::new(path))?,
             )),
         },
         Command::PolicyCmd { action } => match action {

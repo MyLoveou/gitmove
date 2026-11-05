@@ -4,6 +4,7 @@
 //! (ADR-0003/0004). This crate owns the model and the index only.
 
 pub mod asset;
+pub mod config;
 pub mod contribute;
 pub mod audit;
 pub mod deps;

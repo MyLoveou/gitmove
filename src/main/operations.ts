@@ -6,6 +6,7 @@ import type {
   AssetTargetResult,
   AuditRow,
   CommitOutcome,
+  MergePlanPayload,
   Op,
   ProjectRow,
   RevisionRow,
@@ -107,6 +108,26 @@ export async function handleOp(request: Op): Promise<OpResult> {
         if (request.target) argv.push('--target', request.target)
         const results = await call<AssetTargetResult[]>(argv)
         return { ok: true, data: results }
+      }
+      case 'asset.merge': {
+        requireCore()
+        const argv = [
+          '-C',
+          request.workspace,
+          'asset',
+          'merge',
+          '--base',
+          request.base,
+          '--ours',
+          request.ours,
+          '--theirs',
+          request.theirs
+        ]
+        if (request.target) argv.push('--target', request.target)
+        if (request.apply) argv.push('--apply')
+        if (request.force) argv.push('--force')
+        const data = await call<MergePlanPayload>(argv)
+        return { ok: true, data }
       }
       case 'asset.backup': {
         requireCore()
