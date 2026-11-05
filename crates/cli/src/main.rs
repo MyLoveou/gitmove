@@ -69,6 +69,12 @@ enum Command {
         #[command(subcommand)]
         action: IndexAction,
     },
+    /// Policy: skip-worktree / links / worktrees.
+    #[command(name = "policy")]
+    PolicyCmd {
+        #[command(subcommand)]
+        action: PolicyAction,
+    },
     /// MCP server over stdio (JSON-RPC 2.0).
     Mcp,
 }
@@ -116,6 +122,25 @@ enum AssetAction {
         #[arg(long)]
         target: Option<String>,
     },
+    Ls {
+        snapshot: String,
+        #[arg(long)]
+        target: Option<String>,
+    },
+    Merge {
+        #[arg(long)]
+        base: String,
+        #[arg(long)]
+        ours: String,
+        #[arg(long)]
+        theirs: String,
+        #[arg(long)]
+        target: Option<String>,
+        #[arg(long)]
+        apply: bool,
+        #[arg(long)]
+        force: bool,
+    },
     Status,
     Backup {
         #[arg(long)]
@@ -134,6 +159,56 @@ enum AssetAction {
         #[arg(long)]
         target: Option<String>,
     },
+}
+
+#[derive(Subcommand)]
+enum PolicyAction {
+    Apply,
+    Skip {
+        #[command(subcommand)]
+        action: SkipAction,
+    },
+    Link {
+        #[command(subcommand)]
+        action: LinkAction,
+    },
+    Worktree {
+        #[command(subcommand)]
+        action: WorktreeAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum SkipAction {
+    Add { paths: Vec<String> },
+    Remove { paths: Vec<String> },
+    List,
+}
+
+#[derive(Subcommand)]
+enum LinkAction {
+    Add {
+        path: String,
+        #[arg(long)]
+        external: String,
+        #[arg(long, default_value = "junction")]
+        kind: String,
+        #[arg(long)]
+        migrate: bool,
+    },
+    List,
+    Remove { path: String },
+}
+
+#[derive(Subcommand)]
+enum WorktreeAction {
+    Add {
+        path: String,
+        #[arg(long)]
+        branch: String,
+    },
+    List,
+    Remove { path: String },
 }
 
 #[derive(Subcommand)]
@@ -223,6 +298,35 @@ fn run(cli: &Cli, root: &Path) -> Result<Envelope<serde_json::Value>, CoreError>
                 "gitmove_asset_init",
                 gitmove_core::asset::init(root, target.as_deref())?,
             )),
+            AssetAction::Ls { snapshot, target } => {
+                let name = target.clone().unwrap_or_else(|| {
+                    gitmove_core::asset::load_targets(root)
+                        .first()
+                        .map(|item| item.name.clone())
+                        .unwrap_or_default()
+                });
+                Ok(success(
+                    "gitmove_asset_ls",
+                    gitmove_core::merge::list_files(root, &name, snapshot)?,
+                ))
+            }
+            AssetAction::Merge { base, ours, theirs, target, apply, force } => {
+                let name = target.clone().unwrap_or_else(|| {
+                    gitmove_core::asset::load_targets(root)
+                        .first()
+                        .map(|item| item.name.clone())
+                        .unwrap_or_default()
+                });
+                let plan = gitmove_core::merge::plan(root, &name, base, ours, theirs)?;
+                if *apply {
+                    Ok(success(
+                        "gitmove_asset_merge",
+                        gitmove_core::merge::apply(root, &name, &plan, *force)?,
+                    ))
+                } else {
+                    Ok(success("gitmove_asset_merge_plan", plan))
+                }
+            }
             AssetAction::Status => Ok(success("gitmove_asset_status", gitmove_core::asset::status(root))),
             AssetAction::Backup { target } => {
                 let outcome = gitmove_core::asset::backup(root, target.as_deref(), None)?;
@@ -238,6 +342,37 @@ fn run(cli: &Cli, root: &Path) -> Result<Envelope<serde_json::Value>, CoreError>
                 "gitmove_asset_restore",
                 gitmove_core::asset::restore(root, snapshot, target.as_deref())?,
             )),
+        },
+        Command::PolicyCmd { action } => match action {
+            PolicyAction::Apply => Ok(success("gitmove_policy_apply", gitmove_core::policy::apply(root)?)),
+            PolicyAction::Skip { action } => match action {
+                SkipAction::Add { paths } => Ok(success("gitmove_skip_add", gitmove_core::policy::skip_add(root, paths)?)),
+                SkipAction::Remove { paths } => {
+                    Ok(success("gitmove_skip_remove", gitmove_core::policy::skip_remove(root, paths)?))
+                }
+                SkipAction::List => Ok(success("gitmove_skip_list", gitmove_core::policy::skip_list(root)?)),
+            },
+            PolicyAction::Link { action } => match action {
+                LinkAction::Add { path, external, kind, migrate } => Ok(success(
+                    "gitmove_link_add",
+                    gitmove_core::policy::link_add(root, path, external, kind, *migrate)?,
+                )),
+                LinkAction::List => Ok(success("gitmove_link_list", gitmove_core::policy::link_list(root))),
+                LinkAction::Remove { path } => {
+                    Ok(success("gitmove_link_remove", gitmove_core::policy::link_remove(root, path)?))
+                }
+            },
+            PolicyAction::Worktree { action } => match action {
+                WorktreeAction::Add { path, branch } => Ok(success(
+                    "gitmove_worktree_add",
+                    gitmove_core::policy::worktree_add(root, path, branch)?,
+                )),
+                WorktreeAction::List => Ok(success("gitmove_worktree_list", gitmove_core::policy::worktree_list(root)?)),
+                WorktreeAction::Remove { path } => Ok(success(
+                    "gitmove_worktree_remove",
+                    gitmove_core::policy::worktree_remove(root, path)?,
+                )),
+            },
         },
         Command::Index { action: IndexAction::Rebuild } => Ok(success(
             "gitmove_index_rebuild",
@@ -352,6 +487,19 @@ fn mcp_tools() -> Vec<serde_json::Value> {
             "inputSchema": { "type": "object", "properties": {} }
         }),
         serde_json::json!({
+            "name": "gitmove_dep_list",
+            "description": "Declared dependencies with drift/in-effect flags (read-only)",
+            "inputSchema": { "type": "object", "properties": {} }
+        }),
+        serde_json::json!({
+            "name": "gitmove_asset_backup",
+            "description": "Back up every asset target (needs confirm=true and GITMOVE_MCP_ALLOW_WRITE=1)",
+            "inputSchema": {
+                "type": "object",
+                "properties": { "confirm": { "type": "boolean" } }
+            }
+        }),
+        serde_json::json!({
             "name": "gitmove_commit",
             "description": "Create a revision (needs confirm=true and GITMOVE_MCP_ALLOW_WRITE=1)",
             "inputSchema": {
@@ -379,6 +527,17 @@ fn mcp_call(root: &Path, params: &serde_json::Value, allow_write: bool) -> Resul
         }
         "gitmove_asset_status" => Ok(serde_json::json!(gitmove_core::asset::status(root))),
         "gitmove_ws_status" => gitmove_core::workspace::status(root).map(|status| serde_json::json!(status)),
+        "gitmove_dep_list" => gitmove_core::deps::list(root).map(|rows| serde_json::json!(rows)),
+        "gitmove_asset_backup" => {
+            if !allow_write {
+                return Err((-32000, "MCP write disabled: set GITMOVE_MCP_ALLOW_WRITE=1".to_string()));
+            }
+            let confirm = args.get("confirm").and_then(|value| value.as_bool()).unwrap_or(false);
+            if !confirm {
+                return Err((-32000, "confirm=true is required for write tools".to_string()));
+            }
+            gitmove_core::asset::backup(root, None, None).map(|outcome| serde_json::json!(outcome))
+        }
         "gitmove_commit" => {
             if !allow_write {
                 return Err((-32000, "MCP write disabled: set GITMOVE_MCP_ALLOW_WRITE=1".to_string()));

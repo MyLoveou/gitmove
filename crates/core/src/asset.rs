@@ -193,6 +193,16 @@ fn password_file_arg(target: &Target, root: &Path) -> CoreResult<Option<String>>
 
 fn excludes(root: &Path) -> Vec<String> {
     let mut patterns = vec![".git".to_string(), ".gitmove".to_string()];
+    // A backup repository placed inside the workspace must not back itself up.
+    for target in load_targets(root) {
+        let repo = PathBuf::from(&target.repo);
+        if let Ok(relative) = repo.strip_prefix(root) {
+            let value = relative.to_string_lossy().replace('\\', "/");
+            if !value.is_empty() {
+                patterns.push(value);
+            }
+        }
+    }
     let config = paths::config_path(root);
     if let Ok(raw) = std::fs::read_to_string(config) {
         if let Ok(parsed) = toml::from_str::<toml::Value>(&raw) {
