@@ -218,8 +218,9 @@ refs/gitmove/branches/feature-x   (git ref，内容是 JSON)
 1. 预检：workspace 已初始化；成员路径存在；成员是否干净；restic 可用性（若含资产）
 2. 预留 revision id：INSERT INTO revision(status='pending')
 3. 代码平面（若主仓存在）：git add -A && git commit -m "<msg>\n\nGitmove-Revision: <id>"
-   — 成员脏且未传 --members → 拒绝（不产生 Revision）
-   — --members：对每个脏成员各做一次 commit，消息后缀 "[rev <id>]"
+   — 成员脏且未传 --members：第一次拒绝（列出脏成员与出路）；同一状态第二次允许 → 仅提交主仓，
+     Revision 记 `dirty=1`；`--strict` 时始终拒绝（见 ADR-0014，状态存 .gitmove/commit-gate.json）
+   — --members：对每个脏成员各做一次 commit，消息后缀 "[rev <id>"
 4. 成员平面：对每个 member 执行 git rev-parse HEAD → revisions_members
 5. 资产平面：对每个启用的 backup.target 各做一次 restic backup（互不阻塞，按目标记录结果）
 6. 依赖平面：读 project.lock.toml → deps_json

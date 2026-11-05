@@ -1,6 +1,6 @@
 # gitmove v2 · 需求文档（定稿中）
 
-> 状态：**待确认**（2026-11-06）。确认后本文件冻结为 v2.0 基线，改动走变更记录。
+> 状态：**已确认 · v2.0 基线**（2026-11-06）。后续改动必须新增变更记录，不得直接改写已确认的 FR。
 > 仓库：`D:\Project\GitMove\gitmove-v2`（**新仓库**，与 Python 版 `gitmove` 并行，逐步接管）
 > 已定技术决策见 [decisions](../decisions/decisions.md)；架构见 [architecture](../design/architecture.md)。
 
@@ -240,6 +240,7 @@ backup = true
 gitmove ws init                      # 识别当前目录下的仓库并生成 workspace.toml 草稿
 gitmove ws add <path|url> [--role] [--strategy] [--pin]
 gitmove ws list / ws status          # 成员：pin / HEAD / 漂移 / dirty / ahead / 待回推
+gitmove member commit <name> -m "..."   # 单独提交某个成员（不触碰主仓）
 gitmove ws sync [--member name]      # fetch + 检出到 lock 的 commit（不前进 pin）
 gitmove ws update [--to <ref>]       # 前进 pin 并更新 lock（需确认）
 gitmove ws remove <name>
@@ -254,8 +255,12 @@ gitmove ws remove <name>
 ### FR-14 多仓 Revision（P0）
 
 - Revision 记录 **每个成员的 commit**（map），不只主仓
-- `gitmove commit` 默认**只提交主仓**，并要求成员干净；成员脏 → 拒绝并提示
-- `--members`：把脏成员一并提交（每个成员各自 commit，消息带 `[rev N]`）
+- `gitmove commit` 默认**只提交主仓**。成员脏时采用**二次确认**语义：
+  - **第一次**执行 → 拒绝（退出码 1），列出每个脏成员与三条出路：`--members` / 单独提交该成员 / 再执行一次仅提交主仓
+  - 同一状态**再执行一次** → 允许：只提交主仓，Revision 把这些成员记为 `dirty=1` 并打"含未提交成员"标记（`log` 与 UI 可见）
+  - `--members`：把脏成员一并提交（每个成员各自 commit，消息带 `[rev N]`），随后主仓提交，全部干净
+  - `--strict`：关闭二次确认逃生门（CI 用；脏成员直接失败）
+- 单独提交：`gitmove member commit <name> -m "..."` 只在该成员仓里提交，任何时候都允许
 - `--sync`：先把成员同步到 lock 再提交
 - 无主仓（纯容器工作区）时，Revision 只含成员 commits + 资产快照
 - `gitmove checkout <rev>`：主仓 + 每个成员都 checkout 到记录值，资产恢复到快照
@@ -264,7 +269,9 @@ gitmove ws remove <name>
 **验收**
 - [ ] `log` 显示的成员 commit 与 `git -C spec rev-parse HEAD` 一致
 - [ ] 回滚到 rev N 后，四个仓的 HEAD 与记录完全一致（逐仓断言）
-- [ ] 成员脏 + 不带 `--members` → 退出码非 0，且不产生 Revision
+- [ ] 成员脏 + 第一次 `commit` → 退出码 1，列出脏成员与三种出路，且不产生 Revision
+- [ ] 同一状态再执行一次 → 允许，主仓提交成功，Revision 标记 `dirty=1`（`--strict` 下仍失败）
+- [ ] `member commit <name>` 可单独提交成员，主仓不受影响
 - [ ] 纯容器工作区（无主仓）可提交并可回滚
 
 ### FR-15 成员依赖的查看与回推（P0）
@@ -272,7 +279,7 @@ gitmove ws remove <name>
 - `ws status` 每个可编辑成员显示：`pin → HEAD`、`dirty N`、`ahead N`、`上游 behind N`
 - `gitmove ws diff <member>`：预览回推内容
 - `gitmove ws contribute <member> [--branch] [--no-push]`：commit → fetch → rebase → push；冲突中止不自动解决；推送失败降级 bundle
-- `readonly` 成员禁止 contribute（明确报错）
+- `readonly` 成员禁止 contribute（明确报错），但允许 `member commit` 之外的只读操作；`local` 成员可 commit 不可 contribute
 
 **验收**
 - [ ] `spec` 有改动时 `ws status` 显示「待回推」，`ws contribute spec` 生成分支
@@ -446,9 +453,9 @@ gitmove merge <branch> [--assets ours|theirs|both] [--no-code]
 | 4 | 依赖名用 alias 还是 lock 里的 name | 优先 lock 的 `name`，回退 alias |
 | 5 | GUI 是否内置终端 | 不做；保留"打开所在目录/编辑器" |
 | 6 | 是否保留 1.x 全部 27 个命令名 | 是（迁移友好），废弃项标 deprecated 一个版本 |
-| 7 | 成员脏时默认提交策略 | 默认**拒绝**，`--members` 才一并提交（避免误提交别人的仓） |
-| 8 | 默认 strategy | 要改并回推 → `vendor`；只读上游 → `clone`；本地素材 → `clone`（本地仓） |
-| 9 | `workspace.lock.toml` 与旧 `project.lock.toml` 关系 | 前者=仓库级 commit 锚点；后者=包级实装版本；Revision 同时记录两者 hash |
+| 7 | 成员脏时默认提交策略 | ✅ 已定：第一次拒绝、同一状态第二次允许（仅主仓 + 标记 dirty）；`--members` 一并提交；`--strict` 关闭逃生门；支持 `member commit` 单独提交 |
+| 8 | 默认 strategy | ✅ 已定：要改并回推 → `vendor`；只读上游 → `clone`；本地素材 → `clone` |
+| 9 | 两套 lock | ✅ 已定：`workspace.lock.toml`=仓库级 commit；`project.lock.toml`=包级实装；Revision 记两者 hash |
 | 10 | 资产合并默认行为 | ✅ 已定：`auto`（先合无歧义，冲突留待解决） |
 | 11 | 远程备份后端 | ✅ 已定：2.0 只做两块本地盘；2.1 再评估 s3/sftp（架构已留 target 抽象） |
-| 12 | 工作区分支是否也记录成员分支名 | 是：分支 = 每成员分支 + 资产指针，切换时可逐仓还原 |
+| 12 | 工作区分支 | ✅ 已定：分支 = 每成员分支 + 资产指针，切换逐仓还原 |
