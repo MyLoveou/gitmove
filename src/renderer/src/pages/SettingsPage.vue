@@ -57,7 +57,16 @@ const info = computed(() => store.info)
         <strong>工作区配置（.gitmove/config.toml）</strong>
         <button class="btn ghost" @click="store.loadConfig()">加载配置</button>
       </div>
-      <pre class="config-pre">{{ store.configToml || '点击「加载配置」查看当前工作区的策略与备份目标' }}</pre>
+      <textarea
+        v-model="store.configToml"
+        class="config-pre"
+        spellcheck="false"
+        placeholder="点击「加载配置」查看/编辑当前工作区的策略与备份目标"
+      ></textarea>
+      <div class="merge-actions">
+        <button class="btn primary" @click="store.saveConfig(store.configToml)">保存配置</button>
+        <button class="btn ghost" @click="store.loadConfig()">重新加载</button>
+      </div>
     </div>
 
     <p class="footnote">

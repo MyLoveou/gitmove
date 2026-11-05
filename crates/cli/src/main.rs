@@ -45,6 +45,9 @@ enum Command {
         /// Back up every configured asset target as part of the revision.
         #[arg(long)]
         assets: bool,
+        /// Commit only these files (member:path or path; repeatable).
+        #[arg(long = "path")]
+        paths: Vec<String>,
     },
     Checkout {
         id: i64,
@@ -74,6 +77,13 @@ enum Command {
     PolicyCmd {
         #[command(subcommand)]
         action: PolicyAction,
+    },
+    /// Working-tree changes (main + members).
+    Changes,
+    /// Discard selected changes (member:path or path).
+    Discard {
+        #[arg(long = "path")]
+        paths: Vec<String>,
     },
     /// Sync check / fast-forward pull.
     Sync {
@@ -334,9 +344,33 @@ fn run(cli: &Cli, root: &Path) -> Result<Envelope<serde_json::Value>, CoreError>
             RevAction::Log { limit } => Ok(success("gitmove_rev_log", gitmove_core::revision::log(root, *limit)?)),
             RevAction::Show { id } => Ok(success("gitmove_rev_show", gitmove_core::revision::show(root, *id)?)),
         },
-        Command::Commit { message, members, strict, assets } => {
-            let outcome = gitmove_core::revision::commit(root, message, *members, *strict, *assets)?;
-            Ok(success("gitmove_commit", outcome))
+        Command::Commit { message, members, strict, assets, paths } => {
+            if paths.is_empty() {
+                let outcome = gitmove_core::revision::commit(root, message, *members, *strict, *assets)?;
+                Ok(success("gitmove_commit", outcome))
+            } else {
+                let mut main_paths = Vec::new();
+                let mut member_map: std::collections::BTreeMap<String, Vec<String>> = Default::default();
+                for item in paths {
+                    match item.split_once(':') {
+                        Some((member, path)) => member_map.entry(member.to_string()).or_default().push(path.to_string()),
+                        None => main_paths.push(item.clone()),
+                    }
+                }
+                let outcome = gitmove_core::revision::commit_paths(root, message, &main_paths, &member_map)?;
+                Ok(success("gitmove_commit", outcome))
+            }
+        }
+        Command::Changes => Ok(success("gitmove_changes", gitmove_core::changes::status(root)?)),
+        Command::Discard { paths } => {
+            let selections: Vec<(String, String)> = paths
+                .iter()
+                .map(|item| match item.split_once(':') {
+                    Some((member, path)) => (member.to_string(), path.to_string()),
+                    None => ("main".to_string(), item.clone()),
+                })
+                .collect();
+            Ok(success("gitmove_discard", gitmove_core::changes::discard(root, &selections)?))
         }
         Command::Checkout { id, force } => Ok(success(
             "gitmove_checkout",

@@ -1,10 +1,14 @@
 import { app } from 'electron'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 import type {
   AppInfo,
   AssetStatusPayload,
   AssetTargetResult,
   AuditRow,
+  ChangeRow,
   CommitOutcome,
   MergePlanPayload,
   Op,
@@ -108,6 +112,37 @@ export async function handleOp(request: Op): Promise<OpResult> {
         if (request.target) argv.push('--target', request.target)
         const results = await call<AssetTargetResult[]>(argv)
         return { ok: true, data: results }
+      }
+      case 'changes.list': {
+        requireCore()
+        const rows = await call<ChangeRow[]>(['-C', request.workspace, 'changes'])
+        return { ok: true, data: rows }
+      }
+      case 'changes.discard': {
+        requireCore()
+        const argv = ['-C', request.workspace, 'discard']
+        for (const item of request.selections) argv.push('--path', `${item.member}:${item.path}`)
+        const data = await call<string[]>(argv)
+        return { ok: true, data }
+      }
+      case 'rev.commitPaths': {
+        requireCore()
+        const argv = ['-C', request.workspace, 'commit', '-m', request.message]
+        for (const item of request.selections) argv.push('--path', `${item.member}:${item.path}`)
+        const data = await call<CommitOutcome>(argv)
+        return { ok: true, data }
+      }
+      case 'config.save': {
+        requireCore()
+        const dir = mkdtempSync(join(tmpdir(), 'gitmove-config-'))
+        const file = join(dir, 'config.toml')
+        try {
+          writeFileSync(file, request.toml, 'utf8')
+          const data = await call<unknown>(['-C', request.workspace, 'config', 'import', file])
+          return { ok: true, data }
+        } finally {
+          rmSync(dir, { recursive: true, force: true })
+        }
       }
       case 'config.export': {
         requireCore()

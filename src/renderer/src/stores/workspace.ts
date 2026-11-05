@@ -109,6 +109,18 @@ export const useWorkspaceStore = defineStore('workspace', {
         this.error = (error as Error).message
       }
     },
+    async saveConfig(toml: string) {
+      if (!this.currentWorkspace) return false
+      try {
+        await invoke({ op: 'config.save', workspace: this.currentWorkspace, toml })
+        this.configToml = toml
+        this.notice = '配置已保存'
+        return true
+      } catch (error) {
+        this.error = (error as Error).message
+        return false
+      }
+    },
     async rebuildIndex() {
       if (!this.currentWorkspace) return
       this.busy = true

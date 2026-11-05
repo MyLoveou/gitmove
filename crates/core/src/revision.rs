@@ -435,3 +435,86 @@ pub fn rebuild(workspace: &Path) -> CoreResult<usize> {
     }
     Ok(count)
 }
+fn commit_staged(repo: &Path, message: &str) -> CoreResult<String> {
+    git::run(repo, &["commit", "-m", message])?;
+    git::head(repo).ok_or_else(|| CoreError::new("GIT_FAILED", "提交后无法读取 HEAD"))
+}
+
+fn add_paths(repo: &Path, paths: &[String]) -> CoreResult<()> {
+    if paths.is_empty() {
+        return Ok(());
+    }
+    let mut args: Vec<String> = vec!["add".into(), "--".into()];
+    args.extend(paths.iter().cloned());
+    let refs: Vec<&str> = args.iter().map(String::as_str).collect();
+    git::run(repo, &refs)?;
+    Ok(())
+}
+
+/// Commit only the selected paths; `member_map` groups member selections.
+pub fn commit_paths(
+    workspace: &Path,
+    message: &str,
+    main_paths: &[String],
+    member_map: &std::collections::BTreeMap<String, Vec<String>>,
+) -> CoreResult<CommitOutcome> {
+    if main_paths.is_empty() && member_map.is_empty() {
+        return Err(CoreError::new("NOTHING_SELECTED", "没有选择任何文件"));
+    }
+    let conn = connect(workspace)?;
+    let id = reserve(&conn)?;
+    let (_, members, _) = crate::workspace::load(workspace)?;
+    let mut members_committed = Vec::new();
+
+    for (member_name, paths) in member_map {
+        let Some(member) = members.iter().find(|item| &item.name == member_name) else {
+            continue;
+        };
+        if !member.path.exists() || !git::is_repo(&member.path) {
+            continue;
+        }
+        add_paths(&member.path, paths)?;
+        if commit_staged(&member.path, &format!("{message} [rev {id}]")).is_ok() {
+            members_committed.push(member_name.clone());
+        }
+    }
+
+    let main_commit = if main_paths.is_empty() {
+        git::head(workspace)
+    } else {
+        add_paths(workspace, main_paths)?;
+        match commit_staged(workspace, &format!("{message}\n\nGitmove-Revision: {id}")) {
+            Ok(commit) => Some(commit),
+            Err(err) => {
+                discard(&conn, id);
+                return Err(err);
+            }
+        }
+    };
+
+    let mut recorded = Vec::new();
+    for member in &members {
+        if let Some(sha) = git::head(&member.path) {
+            recorded.push((member.name.clone(), sha, git::is_dirty(&member.path)));
+        }
+    }
+    record_members(&conn, id, &recorded)?;
+
+    let branch = git::run_allow_fail(workspace, &["rev-parse", "--abbrev-ref", "HEAD"])
+        .map(|value| value.trim().to_string())
+        .filter(|value| value != "HEAD");
+    conn.execute(
+        "UPDATE revision SET status='ok', git_commit=?2, message=?3, created_at=?4, branch=?5 WHERE id=?1",
+        params![id, main_commit, message, Utc::now().to_rfc3339(), branch],
+    )?;
+    clear_gate(workspace);
+
+    Ok(CommitOutcome {
+        revision: id,
+        git_commit: main_commit,
+        members_committed,
+        dirty_members: Vec::new(),
+        trailer_written: true,
+        assets: Vec::new(),
+    })
+}

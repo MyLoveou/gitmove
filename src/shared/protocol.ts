@@ -114,6 +114,12 @@ export interface AssetTargetResult {
   message: string
 }
 
+export interface ChangeRow {
+  member: string
+  code: string
+  path: string
+}
+
 export interface MergeItem {
   path: string
   action: string
@@ -155,6 +161,10 @@ export type Op =
   | { op: 'asset.init'; workspace: string; target?: string }
   | { op: 'asset.backup'; workspace: string; target?: string }
   | { op: 'config.export'; workspace: string }
+  | { op: 'config.save'; workspace: string; toml: string }
+  | { op: 'changes.list'; workspace: string }
+  | { op: 'changes.discard'; workspace: string; selections: { member: string; path: string }[] }
+  | { op: 'rev.commitPaths'; workspace: string; message: string; selections: { member: string; path: string }[] }
   | { op: 'rev.rebuild'; workspace: string }
   | {
       op: 'asset.merge'
