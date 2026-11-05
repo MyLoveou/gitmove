@@ -86,6 +86,50 @@ Revision 同时记录两者 hash，缺一不可。
 | `ws status` | pin / HEAD / 漂移 / dirty / ahead / behind | ❌ |
 | `ws contribute` | 把成员本地改动推回上游 | ❌（只推分支） |
 
+### 2.5 资产平面：多目标备份
+
+```
+backup.target[]                 # workspace.toml
+  ├── local  (E:/backup/...)    # 移动硬盘、NAS 挂载盘
+  └── remote (s3:/sftp:/rest:)  # 异地/云端
+
+asset backup --target all
+  ├── 本地目标：restic backup → snapshot A  ── 记录到 revision_target
+  └── 远程目标：restic backup → snapshot B  ── 记录到 revision_target
+```
+
+规则：
+
+| 规则 | 说明 |
+|---|---|
+| 目标独立 | 每个目标有自己的 repo / 密码源 / 优先级；互不阻塞 |
+| 备份结果按目标记录 | `revision_target(revision_id, target, snapshot_id, size, duration)` |
+| 部分成功 | 退出码 2；UI 分列显示；`doctor` 对"远程副本落后"报警 |
+| 恢复选源 | `--from <target>`；缺省按 `priority` 找第一个可达且含该 rev 快照的目标 |
+| 凭据 | 环境变量 / 密码文件；密码文件不得位于任何 Git 仓库内 |
+| 远程失败隔离 | 本地备份绝不因远程不可达而失败；反之亦然 |
+
+### 2.6 分支与合并
+
+**分支以 git 为准**，gitmove 只维护"工作区分支"的映射：
+
+```
+refs/gitmove/branches/feature-x   (git ref，内容是 JSON)
+{
+  "members": {"main": "feature-x", "spec": "feature-x", "infra": "v0.5.0-detached"},
+  "assets": {"base_revision": 12}
+}
+```
+
+- `switch <branch>`：逐成员 `git checkout <其分支>`；任一仓脏 → 拒绝
+- `merge <branch>`：逐成员 `git merge <成员分支>`；冲突即停（不自动解决）
+- 工作区合并成功后生成合并 Revision：`parents = [HEAD, branch]`
+- 资产**不做内容合并**：`--assets ours|theirs|both`
+  - `ours`（默认）：工作区素材保持当前；另一侧快照仅存档
+  - `theirs`：恢复到被合并分支的最新快照
+  - `both`：先备份当前，再恢复 theirs（保留两份）
+- 合并 Revision 的 `revision_target` 记录实际使用的快照；`parents` 保留双亲，DAG 可画汇合
+
 ---
 
 ## 3. 关键决策（摘要）
@@ -116,11 +160,12 @@ Revision 同时记录两者 hash，缺一不可。
    — 成员脏且未传 --members → 拒绝（不产生 Revision）
    — --members：对每个脏成员各做一次 commit，消息后缀 "[rev <id>]"
 4. 成员平面：对每个 member 执行 git rev-parse HEAD → revisions_members
-5. 资产平面：restic backup（excludes 来自策略）
+5. 资产平面：对每个启用的 backup.target 各做一次 restic backup（互不阻塞，按目标记录结果）
 6. 依赖平面：读 project.lock.toml → deps_json
 7. 配方平面：hash([env].steps)
-8. UPDATE revision SET status='ok', git_commit, snapshot, lock_hash
+8. UPDATE revision SET status='ok', git_commit, snapshot, lock_hash, branch
    任一步失败 → 删除 pending 行，返回错误（已提交的 git commit 不回退，明确告知）
+   注：多目标部分失败仍视为成功提交（status='ok'，对应 target 行标 failed），退出码 2
 ```
 
 ### 4.2 回滚
@@ -151,11 +196,26 @@ CREATE TABLE revision(
   id INTEGER, workspace_id INTEGER, status TEXT,      -- pending|ok|failed
   git_commit TEXT, snapshot TEXT, env_hash TEXT,
   deps_json TEXT, message TEXT, created_at TEXT,
+  branch TEXT,                                        -- 工作区分支（可空）
   PRIMARY KEY(workspace_id, id)
 );
+CREATE TABLE revision_parent(
+  workspace_id INTEGER, revision_id INTEGER, parent_id INTEGER,
+  PRIMARY KEY(workspace_id, revision_id, parent_id)
+);
+CREATE TABLE revision_target(                         -- 每个备份目标的快照
+  workspace_id INTEGER, revision_id INTEGER, target TEXT,
+  snapshot_id TEXT, size_bytes INTEGER, duration_ms INTEGER,
+  status TEXT,                                        -- ok|failed
+  PRIMARY KEY(workspace_id, revision_id, target)
+);
 CREATE TABLE snapshot(
-  workspace_id INTEGER, snapshot_id TEXT, size_bytes INTEGER,
-  files INTEGER, created_at TEXT, PRIMARY KEY(workspace_id, snapshot_id)
+  workspace_id INTEGER, target TEXT, snapshot_id TEXT, size_bytes INTEGER,
+  files INTEGER, created_at TEXT, PRIMARY KEY(workspace_id, target, snapshot_id)
+);
+CREATE TABLE branch(
+  workspace_id INTEGER, name TEXT, members_json TEXT, assets_base INTEGER,
+  updated_at TEXT, PRIMARY KEY(workspace_id, name)
 );
 CREATE TABLE member(
   workspace_id INTEGER, name TEXT, path TEXT, role TEXT,

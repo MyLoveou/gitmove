@@ -289,6 +289,80 @@ gitmove ws remove <name>
 - [ ] 成员表按角色分组，`editable` 的贡献状态一眼可见
 - [ ] 从成员行可直接执行 sync / contribute / 打开目录
 
+### FR-17 双备份目标：本地 + 远程（P0）
+
+资产平面支持**多个备份目标同时存在**，一次备份同时写本地与远程；任一目标失败不阻断其它目标。
+
+```toml
+[[backup.target]]
+name = "local-e"          # 本地移动硬盘
+kind = "local"
+repo = "E:/backup/big-project-restic"
+password_file = "D:/secure/restic-pass.txt"
+
+[[backup.target]]
+name = "remote-s3"        # 远程对象存储（restic 原生后端）
+kind = "remote"
+repo = "s3:https://s3.example.com/bucket/big-project"
+password_env = "RESTIC_PASSWORD_REMOTE"
+priority = 2              # restore 时的尝试顺序（越小越优先）
+```
+
+命令：
+
+```
+gitmove asset target add|list|remove|test
+gitmove asset backup [--target all|<name>]        # 默认 all
+gitmove asset check  [--target all|<name>]
+gitmove asset restore <rev> [--from <target>]     # 默认按 priority 找第一个可达目标
+```
+
+- Revision 记录**每个目标的 snapshot id**（同一份内容、不同仓库）
+- 部分成功语义：本地成功、远程失败 → 退出码 2，UI 把远程标红，`doctor` 提示"远程副本过期"
+- 凭据只从环境变量/密码文件读，绝不写入配置或日志
+
+**验收**
+- [ ] 一次 `asset backup` 后，本地与远程仓库都有快照，Revision 记录两条 snapshot id
+- [ ] 拔掉移动硬盘：远程仍成功，退出码 2，本地目标标红（不阻塞）
+- [ ] `asset restore --from remote-s3` 可从远程还原；`--from` 缺省时按 priority 选可达目标
+- [ ] 密码文件位于 Git 仓库内 → 明确拒绝
+
+### FR-18 分支与合并（P0，git 语义）
+
+**代码平面直接用 git 的分支/合并**，gitmove 只做编排与可视化：
+
+```
+gitmove branch list|create <name>|switch <name>|delete <name>
+gitmove merge <branch> [--assets ours|theirs|both] [--no-code]
+```
+
+- **工作区分支** = 每个成员当前所在分支的映射 + 资产指针，记在 `refs/gitmove/branches/<name>`（主仓）或索引里
+- `switch`：逐成员切换；任一仓有未提交改动 → 拒绝并列出
+- `merge`：逐成员 `git merge`；任一仓冲突 → 停止并列出冲突文件（**不自动解决**，与 git 一致）
+- 合并成功 → 生成**合并 Revision**（`parents = [当前, 被合并]`），`log` 能画出分叉/汇合
+- **资产没有内容合并**：`--assets ours|theirs|both`，默认 `ours`；另一侧快照仍保留可查，合并 Revision 记录两条 lineage
+- 冲突解决后 `gitmove merge --continue` 收尾；`--abort` 回到合并前
+
+**验收**
+- [ ] 三个成员各建 `feature/x` 并切换：`branch list` 显示三仓一致，`switch main` 逐仓回到 main
+- [ ] 制造成员冲突：`merge` 退出码非 0、列出冲突文件、不产生 Revision，`--abort` 可回退
+- [ ] 合并 Revision 有两个 parents，`log --graph` 可画出汇合点
+- [ ] `--assets theirs` 合并后工作区素材与 theirs 快照一致（抽查哈希）
+
+### FR-19 可视化（P0）
+
+| 视图 | 内容 |
+|---|---|
+| **版本 DAG** | Revision 节点 + 分支 + 合并点；点击节点看该 rev 的成员 commits / 快照 / 依赖 |
+| **成员/依赖图** | workspace → members；member → 包级依赖；标出 editable/readonly/local |
+| **备份矩阵** | target × 最近快照 × 大小 × 耗时 × 状态（本地/远程并排） |
+| **变更面板** | 四平面：代码 diff 摘要、资产待备份量、依赖漂移、配方过期 |
+
+**验收**
+- [ ] 四个视图都能从总览一步进入
+- [ ] 200+ revisions 下 DAG 滚动流畅（虚拟化）
+- [ ] 备份矩阵在远程离线时清晰标红，且不影响本地列
+
 ---
 
 ## 4. 非功能需求
@@ -303,6 +377,8 @@ gitmove ws remove <name>
 | 可观测 | 结构化日志（JSON lines）、`--verbose`、日志位置可在设置中打开 |
 | 数据 | 索引可删除重建；git/restic 是事实源 |
 | 平台 | Windows 优先（x64）；macOS/Linux 编译可跑，不承诺安装包 |
+| 备份可靠性 | 多目标互不阻塞；单目标失败退出码 2；远程凭据不进配置/日志 |
+| 可视化性能 | 版本 DAG / 成员图 / 备份矩阵：200+ 节点可交互（虚拟化渲染） |
 
 ---
 
@@ -358,3 +434,6 @@ gitmove ws remove <name>
 | 7 | 成员脏时默认提交策略 | 默认**拒绝**，`--members` 才一并提交（避免误提交别人的仓） |
 | 8 | 默认 strategy | 要改并回推 → `vendor`；只读上游 → `clone`；本地素材 → `clone`（本地仓） |
 | 9 | `workspace.lock.toml` 与旧 `project.lock.toml` 关系 | 前者=仓库级 commit 锚点；后者=包级实装版本；Revision 同时记录两者 hash |
+| 10 | 资产合并不冲突时的默认策略 | 默认 `ours`（保留当前），另一侧快照仍可查 |
+| 11 | 远程备份后端范围 | 先用 restic 原生：`s3` / `sftp` / `rest` / `b2` / `azure`；不做自研上传 |
+| 12 | 工作区分支是否也记录成员分支名 | 是：分支 = 每成员分支 + 资产指针，切换时可逐仓还原 |
