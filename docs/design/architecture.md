@@ -90,8 +90,10 @@ Revision 同时记录两者 hash，缺一不可。
 
 ```
 backup.target[]                 # workspace.toml
-  ├── local  (E:/backup/...)    # 移动硬盘、NAS 挂载盘
-  └── remote (s3:/sftp:/rest:)  # 异地/云端
+  ├── local  (E:/backup/...)    # 移动硬盘
+  └── local  (F:/backup/...)    # 另一块盘 / NAS 挂载盘
+
+# 2.0 只实现 local；remote 的字段保留，2.1 再开
 
 asset backup --target all
   ├── 本地目标：restic backup → snapshot A  ── 记录到 revision_target
@@ -129,6 +131,65 @@ refs/gitmove/branches/feature-x   (git ref，内容是 JSON)
   - `theirs`：恢复到被合并分支的最新快照
   - `both`：先备份当前，再恢复 theirs（保留两份）
 - 合并 Revision 的 `revision_target` 记录实际使用的快照；`parents` 保留双亲，DAG 可画汇合
+
+### 2.7 资产合并：三路文件级分析
+
+资产（二进制）无法做内容拼接，但**可以分析**——以共同祖先为 base，逐文件判定归属。
+
+#### 三方来源
+
+| 侧 | 快照 |
+|---|---|
+| base | 合并双方的最近共同祖先 Revision 的资产快照 |
+| ours | 当前工作区 HEAD Revision 的资产快照 |
+| theirs | 被合并分支最新 Revision 的资产快照 |
+
+#### 判定表（path 维度）
+
+| base | ours | theirs | 结果 |
+|---|---|---|---|
+| 无 | 有 | 无 | 取 ours（新增） |
+| 无 | 无 | 有 | 取 theirs（新增） |
+| 无 | 有 | 有 | 内容哈希相同 → 一份；不同 → **冲突** |
+| 有 | 改 | 未改 | 取 ours |
+| 有 | 未改 | 改 | 取 theirs |
+| 有 | 改 | 改 | 哈希相同 → 自动；不同 → **冲突** |
+| 有 | 删 | 未改 | 删除 |
+| 有 | 未改 | 删 | 删除 |
+| 有 | 删 | 改 | **冲突**（删 vs 改） |
+| 有 | 改 | 删 | **冲突**（改 vs 删） |
+| 有 | 删 | 删 | 删除 |
+
+#### 数据来源（不读全量内容）
+
+`snapshot_file` 索引记录每个快照的 `path / size / mtime / blake3`：
+
+- `path/size/mtime` 来自 `restic ls --json`（快，不读数据）
+- `blake3` 由 core 扫描时增量维护（`mtime+size` 未变则复用缓存）
+- 判定"内容是否相同"用 `blake3`；缺失时只在**双方 size/mtime 都不同**才判冲突，必要时用 `restic dump` 流式哈希（仅少数文件）
+
+#### 合并状态与收尾
+
+```
+.gitmove/merge-state.toml
+  base = 12
+  ours = 20
+  theirs = 18
+  conflicts = [
+    { path = "素材/第1集/a.mp4", reason = "both-modified", ours_hash, theirs_hash, ours_size, theirs_size },
+    { path = "素材/第1集/b.wav", reason = "delete-vs-modify" },
+  ]
+  auto_merged = [ ... ]
+```
+
+- `auto`：应用无歧义结果，写冲突清单，工作区进入"合并中"；`ws commit` 被拒绝，直到冲突清零
+- 冲突解决：`ws merge --resolve <path> --take ours|theirs|both`（`both` 会重命名为 `<name>.theirs.<ext>`）
+- `ws merge --continue` 生成合并 Revision（parents=[ours, theirs]，`revision_target` 记录实际快照）
+- `ws merge --abort`：恢复合并前工作区与 Revision
+
+#### UI
+
+冲突面板按 reason 分组，显示两侧 size/hash 与（可选）视频首帧缩略图；每行三个动作（保留我们/保留他们/都留）。
 
 ---
 
@@ -212,6 +273,11 @@ CREATE TABLE revision_target(                         -- 每个备份目标的�
 CREATE TABLE snapshot(
   workspace_id INTEGER, target TEXT, snapshot_id TEXT, size_bytes INTEGER,
   files INTEGER, created_at TEXT, PRIMARY KEY(workspace_id, target, snapshot_id)
+);
+CREATE TABLE snapshot_file(
+  workspace_id INTEGER, target TEXT, snapshot_id TEXT, path TEXT,
+  size INTEGER, mtime INTEGER, blake3 TEXT,
+  PRIMARY KEY(workspace_id, target, snapshot_id, path)
 );
 CREATE TABLE branch(
   workspace_id INTEGER, name TEXT, members_json TEXT, assets_base INTEGER,
