@@ -14,10 +14,12 @@ export function pythonCommand(): string {
 export function coreBinary(): string | null {
   const explicit = process.env.GITMOVE_CORE?.trim()
   if (explicit && existsSync(explicit)) return explicit
+  const packaged = process.resourcesPath ? join(process.resourcesPath, 'core', 'gitmove-core.exe') : ''
   const candidates = [
+    packaged,
     join(process.cwd(), 'target', 'release', 'gitmove-core.exe'),
     join(process.cwd(), 'target', 'debug', 'gitmove-core.exe')
-  ]
+  ].filter(Boolean)
   return candidates.find((candidate) => existsSync(candidate)) ?? null
 }
 

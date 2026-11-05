@@ -68,7 +68,7 @@ fn commit_writes_trailer_and_log_returns_it() {
     git(&dir, &["add", "-A"]);
     git(&dir, &["commit", "-m", "init"]);
 
-    let outcome = revision::commit(&dir, "first", false, false).unwrap();
+    let outcome = revision::commit(&dir, "first", false, false, false).unwrap();
     assert_eq!(outcome.revision, 1);
     assert!(outcome.trailer_written);
 
@@ -86,10 +86,10 @@ fn checkout_restores_recorded_state() {
     std::fs::write(dir.join("a.txt"), "v1").unwrap();
     git(&dir, &["add", "-A"]);
     git(&dir, &["commit", "-m", "init"]);
-    revision::commit(&dir, "first", false, false).unwrap();
+    revision::commit(&dir, "first", false, false, false).unwrap();
 
     std::fs::write(dir.join("a.txt"), "v2").unwrap();
-    revision::commit(&dir, "second", false, false).unwrap();
+    revision::commit(&dir, "second", false, false, false).unwrap();
 
     revision::checkout(&dir, 1, true).unwrap();
     let content = std::fs::read_to_string(dir.join("a.txt")).unwrap();
@@ -102,9 +102,9 @@ fn rebuild_index_from_trailers() {
     std::fs::write(dir.join("a.txt"), "v1").unwrap();
     git(&dir, &["add", "-A"]);
     git(&dir, &["commit", "-m", "init"]);
-    revision::commit(&dir, "first", false, false).unwrap();
+    revision::commit(&dir, "first", false, false, false).unwrap();
     std::fs::write(dir.join("a.txt"), "v2").unwrap();
-    revision::commit(&dir, "second", false, false).unwrap();
+    revision::commit(&dir, "second", false, false, false).unwrap();
 
     std::fs::remove_file(gitmove_core::paths::index_path(&dir)).unwrap();
     let count = revision::rebuild(&dir).unwrap();
@@ -138,10 +138,10 @@ fn dirty_member_gate_rejects_once_then_allows() {
     .unwrap();
     std::fs::write(member.join("s.txt"), "spec changed").unwrap();
 
-    let first = revision::commit(&dir, "one", false, false).unwrap_err();
+    let first = revision::commit(&dir, "one", false, false, false).unwrap_err();
     assert_eq!(first.code, "DIRTY_MEMBERS");
 
-    let second = revision::commit(&dir, "two", false, false).unwrap();
+    let second = revision::commit(&dir, "two", false, false, false).unwrap();
     assert!(second.trailer_written);
     assert_eq!(second.dirty_members, vec!["spec".to_string()]);
 }

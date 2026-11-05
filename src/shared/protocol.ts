@@ -81,6 +81,39 @@ export interface WorkspaceStatus {
   members: MemberStatus[]
 }
 
+export interface AssetTarget {
+  name: string
+  kind: string
+  repo: string
+  priority: number
+  enabled: boolean
+  restic: boolean
+}
+
+export interface AssetSnapshot {
+  target: string
+  snapshot_id: string
+  files: number
+  bytes: number
+  created_at: string
+  revision_id: number | null
+}
+
+export interface AssetStatusPayload {
+  restic_version: string | null
+  targets: AssetTarget[]
+  snapshots: AssetSnapshot[]
+}
+
+export interface AssetTargetResult {
+  target: string
+  ok: boolean
+  snapshot_id: string | null
+  files: number
+  bytes: number
+  message: string
+}
+
 export interface AppInfo {
   version: string
   platform: string
@@ -100,5 +133,8 @@ export type Op =
   | { op: 'rev.commit'; workspace: string; message: string; members?: boolean }
   | { op: 'rev.checkout'; workspace: string; id: number; force?: boolean }
   | { op: 'ws.status'; workspace: string }
+  | { op: 'asset.status'; workspace: string }
+  | { op: 'asset.init'; workspace: string; target?: string }
+  | { op: 'asset.backup'; workspace: string; target?: string }
 
 export const IPC_INVOKE = 'gitmove:invoke'

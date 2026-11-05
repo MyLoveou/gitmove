@@ -2,7 +2,7 @@
 
 项目工作区的版本控制与备份编排层：一个大项目由**多个 git 仓库**组成（主仓 + AI 规范库 + 工具库 + 本地素材仓），gitmove 把这些仓库当作 **Member** 管理，并把**代码（git）**与**大体积素材（restic）**编成同一个可回滚的**修订（Revision）**。
 
-> 状态：**M1 / M2 / M3 已完成**（2026-11-06）。桌面壳可运行，Rust 核心已接管只读数据与修订（commit/log/show/checkout）。M4 起接管写路径（策略/依赖/资产）。
+> 状态：**v0.2.0**（2026-11-06）。Rust 核心接管：审计 / 修订（提交·时间线·回滚·重建）/ 多仓工作区 / 依赖清单 / **双盘资产备份** / 依赖回推 / MCP。Electron 五页面可用，Windows 安装包（NSIS）已产出。
 
 ## 文档
 
@@ -32,12 +32,26 @@ src/shared/    跨进程协议类型
 | 项目注册表 | `projects list` |
 | **修订提交**（git commit + `Gitmove-Revision` trailer + SQLite 索引） | `commit -m "..." [--members]` |
 | 修订时间线 / 详情 | `rev log` / `rev show <id>` |
+| 双盘资产备份（互不阻塞，部分失败=2） | `asset init/status/backup/snapshots/check/restore` |
+| 依赖清单（漂移/未生效） | `dep list` |
+| 依赖回推（冲突不自动解决，断网降级 bundle） | `ws diff` / `ws contribute` |
+| MCP（stdio，5 tools + 1 prompt + 1 resource） | `mcp` |
 | **回滚**（主仓 + 成员逐仓 checkout） | `checkout <id> [--force]` |
 | 索引从 trailer 重建 | `index rebuild` |
 | 多仓工作区状态（成员/角色/pin/dirty） | `ws status` |
 
 桌面端：总览（项目与健康）、提交图（时间线 + 提交表单）、工作区（成员表）、设置（引擎信息）。
 点击总览任一行可切换当前工作区。
+
+## 打包
+
+```powershell
+cargo build --release
+npm run build
+npx electron-builder --win nsis   # dist/gitmove Setup 0.2.0.exe
+```
+
+安装包会把 `gitmove-core.exe` 放进 `resources/core/`。
 
 ## 构建与运行
 
@@ -66,6 +80,6 @@ npm run smoke                         # SMOKE OK projects=6 / audit=6 / ws / rev
 | M1 | Electron + Vue 壳，接现有 CLI | ✅ |
 | M2 | Rust 只读核心（scan/index/doctor/audit） | ✅ 只读部分 |
 | M3 | Revision（commit/log/show/checkout + 重建） | ✅ |
-| M4 | 写路径（策略/依赖/资产/回推） | ⬜ |
-| M5 | MCP + 全功能界面 | ⬜ |
-| M6 | Python 下线，单二进制发布 | ⬜ |
+| M4 | 写路径（策略/依赖/资产/回推） | ◐ 资产/依赖/回推已完成；`apply/skip/link` 仍在 Python |
+| M5 | MCP + 全功能界面 | ◐ MCP 5 tools；五页面可用；三路资产合并未做 |
+| M6 | Python 下线，单二进制发布 | ◐ Windows 安装包已产出；Python 尚未下线 |

@@ -3,7 +3,10 @@
 //! Storage engines stay external: `git` and `restic` are invoked as processes
 //! (ADR-0003/0004). This crate owns the model and the index only.
 
+pub mod asset;
+pub mod contribute;
 pub mod audit;
+pub mod deps;
 pub mod error;
 pub mod git;
 pub mod json;

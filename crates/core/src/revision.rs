@@ -37,6 +37,7 @@ pub struct CommitOutcome {
     pub members_committed: Vec<String>,
     pub dirty_members: Vec<String>,
     pub trailer_written: bool,
+    pub assets: Vec<crate::asset::TargetResult>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -46,7 +47,7 @@ pub struct CheckoutOutcome {
     pub members: Vec<String>,
 }
 
-fn connect(workspace: &Path) -> CoreResult<Connection> {
+pub(crate) fn connect(workspace: &Path) -> CoreResult<Connection> {
     let index = paths::index_path(workspace);
     if let Some(parent) = index.parent() {
         std::fs::create_dir_all(parent)?;
@@ -82,6 +83,16 @@ fn ensure_schema(conn: &Connection) -> CoreResult<()> {
             commit_sha TEXT,
             dirty INTEGER NOT NULL DEFAULT 0,
             PRIMARY KEY(revision_id, member)
+        );
+        CREATE TABLE IF NOT EXISTS asset_snapshot(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            target TEXT NOT NULL,
+            snapshot_id TEXT NOT NULL,
+            files INTEGER NOT NULL DEFAULT 0,
+            bytes INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT,
+            revision_id INTEGER,
+            UNIQUE(target, snapshot_id)
         );
         CREATE TABLE IF NOT EXISTS revision_parent(
             revision_id INTEGER NOT NULL,
@@ -174,6 +185,7 @@ pub fn commit(
     message: &str,
     include_members: bool,
     strict: bool,
+    with_assets: bool,
 ) -> CoreResult<CommitOutcome> {
     let conn = connect(workspace)?;
     let dirty = crate::workspace::dirty_members(workspace)?;
@@ -254,12 +266,26 @@ pub fn commit(
     )?;
     clear_gate(workspace);
 
+    let mut asset_results = Vec::new();
+    if with_assets {
+        if let Ok(outcome) = crate::asset::backup(workspace, None, Some(id)) {
+            if let Some(first) = outcome.results.iter().find(|item| item.ok && item.snapshot_id.is_some()) {
+                let _ = conn.execute(
+                    "UPDATE revision SET snapshot = ?2 WHERE id = ?1",
+                    params![id, first.snapshot_id.clone()],
+                );
+            }
+            asset_results = outcome.results;
+        }
+    }
+
     Ok(CommitOutcome {
         revision: id,
         git_commit: Some(main_commit),
         members_committed,
         dirty_members: if gate_armed { dirty } else { Vec::new() },
         trailer_written: true,
+        assets: asset_results,
     })
 }
 

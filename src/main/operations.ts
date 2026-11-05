@@ -1,6 +1,16 @@
 import { app } from 'electron'
 
-import type { AppInfo, AuditRow, CommitOutcome, Op, ProjectRow, RevisionRow, WorkspaceStatus } from '../shared/protocol'
+import type {
+  AppInfo,
+  AssetStatusPayload,
+  AssetTargetResult,
+  AuditRow,
+  CommitOutcome,
+  Op,
+  ProjectRow,
+  RevisionRow,
+  WorkspaceStatus
+} from '../shared/protocol'
 import { coreBinary, engineName, runCli, sidecarDescription } from './sidecar'
 
 export interface OpResult<T = unknown> {
@@ -85,6 +95,25 @@ export async function handleOp(request: Op): Promise<OpResult> {
         requireCore()
         const status = await call<WorkspaceStatus>(['-C', request.workspace, 'ws', 'status'])
         return { ok: true, data: status }
+      }
+      case 'asset.status': {
+        requireCore()
+        const status = await call<AssetStatusPayload>(['-C', request.workspace, 'asset', 'status'])
+        return { ok: true, data: status }
+      }
+      case 'asset.init': {
+        requireCore()
+        const argv = ['-C', request.workspace, 'asset', 'init']
+        if (request.target) argv.push('--target', request.target)
+        const results = await call<AssetTargetResult[]>(argv)
+        return { ok: true, data: results }
+      }
+      case 'asset.backup': {
+        requireCore()
+        const argv = ['-C', request.workspace, 'asset', 'backup']
+        if (request.target) argv.push('--target', request.target)
+        const outcome = await call<{ results: AssetTargetResult[]; partial: boolean }>(argv)
+        return { ok: true, data: outcome }
       }
       default: {
         const exhaustive: never = request
