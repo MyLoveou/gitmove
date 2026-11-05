@@ -109,6 +109,16 @@ export async function handleOp(request: Op): Promise<OpResult> {
         const results = await call<AssetTargetResult[]>(argv)
         return { ok: true, data: results }
       }
+      case 'config.export': {
+        requireCore()
+        const data = await call<{ toml: string }>(['-C', request.workspace, 'config', 'export'])
+        return { ok: true, data }
+      }
+      case 'rev.rebuild': {
+        requireCore()
+        const data = await call<{ revisions: number }>(['-C', request.workspace, 'index', 'rebuild'])
+        return { ok: true, data }
+      }
       case 'asset.merge': {
         requireCore()
         const argv = [

@@ -1,6 +1,6 @@
 import { join } from 'node:path'
 
-import { BrowserWindow, app, ipcMain, shell } from 'electron'
+import { BrowserWindow, Menu, app, ipcMain, shell } from 'electron'
 
 import { IPC_INVOKE, type Op } from '../shared/protocol'
 import { handleOp } from './operations'
@@ -25,6 +25,7 @@ function createWindow(): BrowserWindow {
   })
 
   window.once('ready-to-show', () => window.show())
+  window.setMenu(null)
 
   window.webContents.setWindowOpenHandler(({ url }) => {
     void shell.openExternal(url)
@@ -120,6 +121,7 @@ if (typeof app?.whenReady !== 'function') {
 }
 
 void app.whenReady().then(async () => {
+  Menu.setApplicationMenu(null)
   ipcMain.handle(IPC_INVOKE, (_event, request: Op) => handleOp(request))
   if (isSmoke) {
     const code = await runSmoke()

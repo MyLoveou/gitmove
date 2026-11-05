@@ -52,6 +52,14 @@ const info = computed(() => store.info)
       </table>
     </div>
 
+    <div class="panel pad">
+      <div class="merge-head">
+        <strong>工作区配置（.gitmove/config.toml）</strong>
+        <button class="btn ghost" @click="store.loadConfig()">加载配置</button>
+      </div>
+      <pre class="config-pre">{{ store.configToml || '点击「加载配置」查看当前工作区的策略与备份目标' }}</pre>
+    </div>
+
     <p class="footnote">
       环境变量：<code>GITMOVE_CORE</code> 可覆盖核心二进制路径（默认使用安装包内 <code>resources/core</code>）。
       若 Electron 被以 <code>ELECTRON_RUN_AS_NODE=1</code> 启动需先清除。

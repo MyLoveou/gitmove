@@ -32,6 +32,7 @@ export const useWorkspaceStore = defineStore('workspace', {
     currentWorkspace: '',
     revisions: [] as RevisionRow[],
     workspaceStatus: null as WorkspaceStatus | null,
+    configToml: '' as string,
     loading: false,
     busy: false,
     error: null as string | null,
@@ -95,6 +96,28 @@ export const useWorkspaceStore = defineStore('workspace', {
         } else {
           this.error = err.message
         }
+      } finally {
+        this.busy = false
+      }
+    },
+    async loadConfig() {
+      if (!this.currentWorkspace) return
+      try {
+        const data = await invoke<{ toml: string }>({ op: 'config.export', workspace: this.currentWorkspace })
+        this.configToml = data.toml
+      } catch (error) {
+        this.error = (error as Error).message
+      }
+    },
+    async rebuildIndex() {
+      if (!this.currentWorkspace) return
+      this.busy = true
+      try {
+        const data = await invoke<{ revisions: number }>({ op: 'rev.rebuild', workspace: this.currentWorkspace })
+        this.notice = `索引重建完成：${data.revisions} 条修订`
+        await this.refreshWorkspace()
+      } catch (error) {
+        this.error = (error as Error).message
       } finally {
         this.busy = false
       }

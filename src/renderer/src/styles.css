@@ -528,5 +528,24 @@ h1 {
 }
 
 tr.selected {
-  background: rgba(47, 215, 196, 0.07);
+  background: rgba(47, 215, 196, 0.14);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+tr.row-click:hover {
+  background: rgba(47, 215, 196, 0.06);
+}
+
+.config-pre {
+  margin: 10px 0 0;
+  max-height: 320px;
+  overflow: auto;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-dim);
+  white-space: pre-wrap;
 }

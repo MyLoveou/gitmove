@@ -154,6 +154,8 @@ export type Op =
   | { op: 'asset.status'; workspace: string }
   | { op: 'asset.init'; workspace: string; target?: string }
   | { op: 'asset.backup'; workspace: string; target?: string }
+  | { op: 'config.export'; workspace: string }
+  | { op: 'rev.rebuild'; workspace: string }
   | {
       op: 'asset.merge'
       workspace: string

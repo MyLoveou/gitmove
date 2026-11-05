@@ -33,6 +33,7 @@ function short(commit: string | null): string {
         </p>
       </div>
       <div class="actions">
+        <button class="btn ghost" :disabled="store.busy" @click="store.rebuildIndex()">从 git 历史重建索引</button>
         <button class="btn ghost" :disabled="store.busy" @click="store.refreshWorkspace()">刷新</button>
       </div>
     </header>
@@ -90,7 +91,12 @@ function short(commit: string | null): string {
           </div>
         </div>
         <div v-if="!rows.length" class="empty">
-          {{ store.busy ? '正在读取…' : '还没有修订：提交第一个修订试试' }}
+          <template v-if="store.busy">正在读取…</template>
+          <template v-else>
+            该工作区还没有 <strong>gitmove 修订</strong>。<br />
+            已有的 git 提交不会自动出现在这里（它们没有 <code>Gitmove-Revision</code> trailer）；<br />
+            提交第一个修订后会开始记录，或用上方「从 git 历史重建索引」导入带 trailer 的提交。
+          </template>
         </div>
       </div>
     </div>
