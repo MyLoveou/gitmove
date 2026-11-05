@@ -72,3 +72,30 @@
 - **决定**：新配置写 `<workspace>/.gitmove/config.toml` 与 `index.sqlite`；读取时若存在 `.git/gitmove.toml` 则导入（只读，不自动删除）。
 - **理由**：不把状态塞进 `.git/`（用户可读、可备份、可忽略）；迁移平滑。
 - **兼容**：`project.lock.toml` 仍在项目根，格式不变。
+
+## ADR-0009 · 工作区 = 多仓组合（Member 一等公民）
+
+- **日期**：2026-11-06
+- **状态**：已定
+- **背景**：真实大项目由多个 git 仓库组成（主仓 + AI 规范库 + 工具库 + 本地素材仓）。
+  1.x 把"依赖"降级为 `project.lock.toml` 里的一条声明：能看漂移，但不能同步、不能定位成"工作区成员"、Revision 也无法绑定成员 commit。
+- **决定**：
+  1. 引入 `Workspace` 与 `Member` 两个一等概念；`workspace.toml` 声明，`workspace.lock.toml` 解析。
+  2. Member 有 `role`（main/editable/readonly/local）与 `strategy`（clone/vendor/link）。
+  3. **Revision 记录每个成员的 commit**；`checkout <rev>` 逐仓还原。
+  4. 成员脏时默认**拒绝提交**，`--members` 才一并提交（避免误提交别人的仓）。
+- **理由**：
+  - 用户真实诉求就是"管理一层多仓"：AI 规范库要在项目内改并回推，工具库要钉版本，素材仓只备份。
+  - 只记录主仓 commit 的 Revision 在回滚时会把成员留在"未来版本"，语义不成立。
+- **代价**：
+  - 提交/回滚变成多仓事务，需要逐仓预检与错误提示。
+  - 需要处理 Windows junction、嵌套 `.git`、备份排除规则。
+- **兼容**：`project.lock.toml` 保留（包级实装版本），与 `workspace.lock.toml`（仓库级 commit）分工明确。
+
+## ADR-0010 · `checkout` 默认 detached，成员逐仓还原
+
+- **日期**：2026-11-06
+- **状态**：已定
+- **决定**：`gitmove checkout <rev>` 对主仓与每个成员执行 detached `git checkout <commit>`；
+  需要分支时用 `--branch <name>`；任一仓脏时要求 `--force`。
+- **理由**：回滚语义应"精确到 commit"，避免意外推进分支；分支操作是另一个显式动作。

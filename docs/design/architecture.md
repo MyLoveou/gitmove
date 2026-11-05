@@ -32,7 +32,63 @@
 
 ---
 
-## 2. 关键决策（摘要）
+## 2. 工作区模型（多仓组合）
+
+一个大项目 = **Workspace**，由 1..N 个 **Member** 组成。这是 v2 与 1.x 最大的结构差异：
+1.x 把"依赖"当成项目内的一条声明；v2 把"依赖仓"当成**一等成员**，有身份、有策略、有 commit。
+
+```
+big-project/
+├── workspace.toml            # 声明（入库）：成员、角色、策略、跟随分支/钉版本
+├── workspace.lock.toml       # 生成（入库）：每个成员的 exact commit + 状态快照
+├── .gitmove/                 # 索引/配置（索引可重建）
+├── .git/                     # 主仓（可选；纯容器工作区没有）
+├── app/                      # member: main
+├── spec/                     # member: editable（AI 规范库；vendor + junction）
+├── infra/                    # member: readonly（工具库；clone）
+└── assets/                   # member: local（无远端；只备份）
+```
+
+### 2.1 成员的四类角色
+
+| role | 典型 | 可改 | 可回推 | 进 Revision | 进资产备份 |
+|---|---|---|---|---|---|
+| `main` | 自己的主仓 | ✅ | —（它就是上游） | ✅ | 按策略 |
+| `editable` | AI 规范库 | ✅ | ✅ | ✅ | 按策略 |
+| `readonly` | 工具库/三方库 | ❌ | ❌ | ✅（只记录 commit） | 否 |
+| `local` | 素材仓/私有代码 | ✅ | ❌（无远端） | ✅ | ✅ |
+
+### 2.2 三种落盘策略
+
+| strategy | 机制 | 适用 |
+|---|---|---|
+| `clone` | 直接在工作区内 `git clone`（嵌套真仓） | readonly 上游、local 仓 |
+| `vendor` | clone 到用户缓存目录 + junction/symlink 进工作区 | editable 上游（改的是 cache 里的真文件，天然可回推） |
+| `link` | 链接一个已存在的目录（不归 gitmove 管） | 外部共享目录 |
+
+选择规则：**要回推就必须 `vendor`**（`clone` 也能改，但工作区里的仓会被 `.gitignore`/备份策略复杂化）。
+
+### 2.3 两个 lock 的分工
+
+| 文件 | 层级 | 内容 | 谁写 |
+|---|---|---|---|
+| `workspace.lock.toml` | 仓库级 | 每个 member 的 commit / ref / dirty / remote | gitmove 生成，入库 |
+| `project.lock.toml` | 包级 | 某个成员内部的包实装版本（如 venv 里的 infra-watermark） | 项目/人工维护，入库 |
+
+Revision 同时记录两者 hash，缺一不可。
+
+### 2.4 同步语义
+
+| 命令 | 做什么 | 改变 pin？ |
+|---|---|---|
+| `ws sync` | fetch + 检出到 lock 里的 commit | ❌ |
+| `ws update --to <ref>` | 把成员前进到新 ref，写回 lock | ✅（需确认） |
+| `ws status` | pin / HEAD / 漂移 / dirty / ahead / behind | ❌ |
+| `ws contribute` | 把成员本地改动推回上游 | ❌（只推分支） |
+
+---
+
+## 3. 关键决策（摘要）
 
 | ID | 决策 | 理由 |
 |---|---|---|
@@ -49,39 +105,42 @@
 
 ---
 
-## 3. Revision 流程
+## 4. Revision 流程
 
-### 3.1 提交
-
-```
-1. 预检：workspace 已初始化、工作区干净度、restic 可用性（若含资产）
-2. 预留 revision id：INSERT INTO revisions(project, status='pending')
-3. 代码平面：git add -A && git commit -m "<msg>\n\nGitmove-Revision: <id>"
-4. 资产平面：restic backup（excludes 来自策略）
-5. 依赖平面：读 project.lock.toml → deps_json
-6. 配方平面：hash([env].steps)
-7. UPDATE revisions SET status='ok', git_commit, snapshot, ...
-   任一步失败 → DELETE pending 行（或标 failed），返回错误
-```
-
-### 3.2 回滚
+### 4.1 提交（含成员）
 
 ```
-gitmove checkout <rev> [--code-only|--assets-only] [--force]
+1. 预检：workspace 已初始化；成员路径存在；成员是否干净；restic 可用性（若含资产）
+2. 预留 revision id：INSERT INTO revision(status='pending')
+3. 代码平面（若主仓存在）：git add -A && git commit -m "<msg>\n\nGitmove-Revision: <id>"
+   — 成员脏且未传 --members → 拒绝（不产生 Revision）
+   — --members：对每个脏成员各做一次 commit，消息后缀 "[rev <id>]"
+4. 成员平面：对每个 member 执行 git rev-parse HEAD → revisions_members
+5. 资产平面：restic backup（excludes 来自策略）
+6. 依赖平面：读 project.lock.toml → deps_json
+7. 配方平面：hash([env].steps)
+8. UPDATE revision SET status='ok', git_commit, snapshot, lock_hash
+   任一步失败 → 删除 pending 行，返回错误（已提交的 git commit 不回退，明确告知）
+```
+
+### 4.2 回滚
+
+```
+gitmove checkout <rev> [--code-only|--assets-only] [--members-only] [--force]
 1. 解析 rev（SQLite；缺则扫 git trailer 重建）
-2. 预检：脏工作区必须 --force；列出将被覆盖的文件
-3. 代码平面：git checkout <commit>
+2. 预检：任一仓脏则要求 --force，并列出将被覆盖的文件（按仓分组）
+3. 代码平面：对主仓与每个成员 git checkout <rev 记录的 commit>（detached）
 4. 资产平面：restic restore <snapshot> --target <workspace>（预览 → 执行）
-5. 校验：抽查文件哈希；失败则报告"部分恢复"
+5. 校验：逐仓断言 HEAD == 记录值；抽查文件哈希；失败报告"部分恢复"并列出未还原项
 ```
 
-### 3.3 trailer 恢复（换机场景）
+### 4.3 trailer 恢复（换机场景）
 
 SQLite 丢失时，`gitmove index rebuild`：遍历 `git log --format=%B`，解析 `Gitmove-Revision:`，重建 revisions 表（无资产快照信息 → 标记 `snapshot=null`，并提示用户提供 restic 仓库）。
 
 ---
 
-## 4. 数据模型（SQLite）
+## 5. 数据模型（SQLite）
 
 ```sql
 CREATE TABLE workspace(
@@ -98,6 +157,16 @@ CREATE TABLE snapshot(
   workspace_id INTEGER, snapshot_id TEXT, size_bytes INTEGER,
   files INTEGER, created_at TEXT, PRIMARY KEY(workspace_id, snapshot_id)
 );
+CREATE TABLE member(
+  workspace_id INTEGER, name TEXT, path TEXT, role TEXT,
+  strategy TEXT, source TEXT, track TEXT, pin_ref TEXT, backup INTEGER,
+  PRIMARY KEY(workspace_id, name)
+);
+CREATE TABLE revision_member(
+  workspace_id INTEGER, revision_id INTEGER, member TEXT,
+  commit_sha TEXT, dirty INTEGER DEFAULT 0,
+  PRIMARY KEY(workspace_id, revision_id, member)
+);
 CREATE TABLE audit_cache(
   workspace_id INTEGER, key TEXT, value_json TEXT, computed_at TEXT,
   PRIMARY KEY(workspace_id, key)
@@ -108,7 +177,7 @@ CREATE TABLE audit_cache(
 
 ---
 
-## 5. 磁盘布局
+## 6. 磁盘布局
 
 ```
 <workspace>/
@@ -116,7 +185,9 @@ CREATE TABLE audit_cache(
 ├── .gitmove/
 │   ├── config.toml        # 策略/配方/depot 配置（替代 .git/gitmove.toml）
 │   └── index.sqlite       # 索引（可重建）
-├── project.lock.toml      # 依赖声明（项目级公开契约，入库）
+├── workspace.toml         # 多仓组合声明（入库）
+├── workspace.lock.toml    # 成员 commit 锚点（生成、入库）
+├── project.lock.toml      # 包级依赖声明（项目级公开契约，入库）
 └── ...
 
 %APPDATA%/gitmove/
@@ -128,7 +199,7 @@ CREATE TABLE audit_cache(
 
 ---
 
-## 6. daemon 协议（JSON-RPC 2.0）
+## 7. daemon 协议（JSON-RPC 2.0）
 
 ```jsonc
 // 请求
@@ -145,7 +216,7 @@ CREATE TABLE audit_cache(
 
 ---
 
-## 7. 模块划分（Rust workspace）
+## 8. 模块划分（Rust workspace）
 
 ```
 crates/
@@ -160,7 +231,7 @@ crates/
 
 ---
 
-## 8. 与 1.x 的关系
+## 9. 与 1.x 的关系
 
 | 1.x（Python） | 2.0（Rust） |
 |---|---|
@@ -175,7 +246,7 @@ crates/
 
 ---
 
-## 9. 风险与对策
+## 10. 风险与对策
 
 | 风险 | 对策 |
 |---|---|

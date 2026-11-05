@@ -10,6 +10,10 @@
 
 **一句话**：gitmove 是**项目工作区的版本控制与备份编排层**——把"代码（git）"和"大体积素材（restic）"编成同一个可回滚的**修订（Revision）**，并管理项目对其它项目的依赖。
 
+更进一步：**一个大项目往往由多个 git 仓库组成**——自己的主仓 + AI 规范库 + 工具库 + 本地素材仓。
+gitmove 把这种组合称为 **Workspace**，把每个仓库称为 **Member**；并要求**每个 Revision 记录所有成员的 commit**。
+于是「回滚」不是只回主仓，而是整组代码（每仓回到当时的 commit）+ 素材（回到当时的快照）一起还原。
+
 它**不是** git 的替代品，而是 git 之上的编排层：
 
 | 平面 | 引擎 | 谁负责 |
@@ -54,6 +58,10 @@ video
 | **Contribution（回推）** | 在依赖的工作副本里改动并推送回上游（分支 + bundle 降级） |
 | **Recipe（配方）** | `[env]` 步骤：重建 venv / node_modules / 模型等可再生内容 |
 | **Policy（策略）** | 冻结（skip-worktree）、外部链接、忽略规则 |
+| **Workspace（工作区）** | 由 1..N 个 Member 组成的"大项目"；主仓可有可无（纯容器也合法） |
+| **Member（成员仓）** | 工作区里的一个 git 仓库，带 `role` / `strategy` / `pin` |
+| **MemberRole** | `main` 自己的主仓 · `editable` 可改并回推的上游（AI 规范库） · `readonly` 只读上游（工具库） · `local` 无远端、只备份（素材/私有代码） |
+| **Strategy** | 成员的落盘方式：`clone`（嵌套真仓）· `vendor`（cache + junction）· `link`（外部目录链接） |
 
 ---
 
@@ -189,6 +197,98 @@ Electron 主进程 + Vue 渲染层，页面：
 - [ ] 视频项目：从打开到完成一次提交（含资产）不超过 3 次点击
 - [ ] 所有破坏性操作有确认对话框，并显示"将影响什么"
 
+### FR-13 工作区组合（多仓管理）（P0）
+
+一个 Workspace 用 `workspace.toml`（入库）声明成员；`workspace.lock.toml`（生成、入库）记录每个成员的精确 commit。
+
+```toml
+version = 1
+[workspace]
+name = "big-project"
+
+[[member]]
+name = "main"          # 主仓（可省略）
+path = "."
+role = "main"
+
+[[member]]
+name = "spec"          # AI 规范库：可改、可回推
+path = "spec"
+role = "editable"
+source = "git@github.com:MyLoveou/cursor-project-spec.git"
+track = "main"
+strategy = "vendor"
+
+[[member]]
+name = "infra"         # 工具库：只读、钉版本
+path = "infra"
+role = "readonly"
+source = "https://github.com/MyLoveou/infra.git"
+pin = "v0.5.0"
+strategy = "clone"
+
+[[member]]
+name = "assets"        # 本地素材仓：无远端、只备份
+path = "assets"
+role = "local"
+backup = true
+```
+
+命令：
+
+```
+gitmove ws init                      # 识别当前目录下的仓库并生成 workspace.toml 草稿
+gitmove ws add <path|url> [--role] [--strategy] [--pin]
+gitmove ws list / ws status          # 成员：pin / HEAD / 漂移 / dirty / ahead / 待回推
+gitmove ws sync [--member name]      # fetch + 检出到 lock 的 commit（不前进 pin）
+gitmove ws update [--to <ref>]       # 前进 pin 并更新 lock（需确认）
+gitmove ws remove <name>
+```
+
+**验收**
+- [ ] 主仓 + spec + infra + assets 四成员：`ws status` 一次列清四个仓的 pin/HEAD/dirty
+- [ ] 成员路径被误删 → 标 `MISSING` 并可 `ws sync` 重建
+- [ ] `ws sync` 不改变 pin；`ws update` 才前进 pin，且要求确认
+- [ ] Windows 下 `vendor` 策略用 junction，不复制 `.git`
+
+### FR-14 多仓 Revision（P0）
+
+- Revision 记录 **每个成员的 commit**（map），不只主仓
+- `gitmove commit` 默认**只提交主仓**，并要求成员干净；成员脏 → 拒绝并提示
+- `--members`：把脏成员一并提交（每个成员各自 commit，消息带 `[rev N]`）
+- `--sync`：先把成员同步到 lock 再提交
+- 无主仓（纯容器工作区）时，Revision 只含成员 commits + 资产快照
+- `gitmove checkout <rev>`：主仓 + 每个成员都 checkout 到记录值，资产恢复到快照
+- trailer 写入主仓 commit（无主仓时写入 `.gitmove/index.sqlite` 与 `workspace.lock.toml` 的 `revision` 字段）
+
+**验收**
+- [ ] `log` 显示的成员 commit 与 `git -C spec rev-parse HEAD` 一致
+- [ ] 回滚到 rev N 后，四个仓的 HEAD 与记录完全一致（逐仓断言）
+- [ ] 成员脏 + 不带 `--members` → 退出码非 0，且不产生 Revision
+- [ ] 纯容器工作区（无主仓）可提交并可回滚
+
+### FR-15 成员依赖的查看与回推（P0）
+
+- `ws status` 每个可编辑成员显示：`pin → HEAD`、`dirty N`、`ahead N`、`上游 behind N`
+- `gitmove ws diff <member>`：预览回推内容
+- `gitmove ws contribute <member> [--branch] [--no-push]`：commit → fetch → rebase → push；冲突中止不自动解决；推送失败降级 bundle
+- `readonly` 成员禁止 contribute（明确报错）
+
+**验收**
+- [ ] `spec` 有改动时 `ws status` 显示「待回推」，`ws contribute spec` 生成分支
+- [ ] `readonly` 的 `infra` 上执行 contribute → 明确报错，不动仓
+- [ ] 断网 contribute → bundle + 退出码 0
+
+### FR-16 工作区级视图（P0）
+
+- `gitmove status` 聚合：主仓改动 + 每个成员 dirty/pin 漂移 + 资产待备份 + 配方过期
+- GUI：工作区页展示成员表（名字/角色/策略/pin/HEAD/漂移/dirty/待回推），点成员可跳转其页面
+- 依赖图：workspace → members；一个成员自身还可以有包级依赖（`project.lock.toml`）
+
+**验收**
+- [ ] 成员表按角色分组，`editable` 的贡献状态一眼可见
+- [ ] 从成员行可直接执行 sync / contribute / 打开目录
+
 ---
 
 ## 4. 非功能需求
@@ -211,6 +311,7 @@ Electron 主进程 + Vue 渲染层，页面：
 | 场景 | 期望 |
 |---|---|
 | 视频项目（38 GB） | 提交一次：代码 commit + 资产快照，UI 显示进度；回滚可还原指定集 |
+| 多仓工作区 | `ws status` 列出主仓 + spec + infra + assets；`commit` 后 `log` 可见四个 commit |
 | 依赖项目（6 仓库） | `audit` 真实文件数（infra 294 / resmgr 1012 / mysite 810 / spec 234） |
 | 依赖回推 | 在项目内改 spec skill → `dep diff` 可见 → `contribute` 生成分支/PR 前置 |
 | 断网 | `contribute` 降级 bundle，退出码 0 |
@@ -254,3 +355,6 @@ Electron 主进程 + Vue 渲染层，页面：
 | 4 | 依赖名用 alias 还是 lock 里的 name | 优先 lock 的 `name`，回退 alias |
 | 5 | GUI 是否内置终端 | 不做；保留"打开所在目录/编辑器" |
 | 6 | 是否保留 1.x 全部 27 个命令名 | 是（迁移友好），废弃项标 deprecated 一个版本 |
+| 7 | 成员脏时默认提交策略 | 默认**拒绝**，`--members` 才一并提交（避免误提交别人的仓） |
+| 8 | 默认 strategy | 要改并回推 → `vendor`；只读上游 → `clone`；本地素材 → `clone`（本地仓） |
+| 9 | `workspace.lock.toml` 与旧 `project.lock.toml` 关系 | 前者=仓库级 commit 锚点；后者=包级实装版本；Revision 同时记录两者 hash |

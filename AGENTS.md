@@ -18,6 +18,7 @@
 | 核心 | Rust；`core` crate 不依赖 cli/daemon/mcp |
 | git | 写操作与语义敏感读操作调 `git` CLI；`gix` 仅只读加速 |
 | 资产 | restic CLI 编排，不捆绑、不自研去重/加密 |
+| 工作区 | 多仓组合（Member）；Revision 必须记录每个成员 commit（ADR-0009） |
 | Revision | SQLite 索引 + git trailer 双写（ADR-0005） |
 | 索引 | 可删除重建；git/restic 是事实源 |
 
