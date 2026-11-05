@@ -2,7 +2,7 @@
 
 项目工作区的版本控制与备份编排层：一个大项目由**多个 git 仓库**组成（主仓 + AI 规范库 + 工具库 + 本地素材仓），gitmove 把这些仓库当作 **Member** 管理，并把**代码（git）**与**大体积素材（restic）**编成同一个可回滚的**修订（Revision）**。
 
-> 状态：**v0.4.0**（2026-11-06）。Rust 核心接管：审计 / 修订（提交·时间线·回滚·重建）/ 多仓工作区 / 依赖清单 / **双盘资产备份** / 依赖回推 / MCP。Electron 五页面可用，Windows 安装包（NSIS）已产出。
+> 状态：**v0.5.0**（2026-11-06）。Rust 单二进制已覆盖全部日常命令。Rust 核心接管：审计 / 修订（提交·时间线·回滚·重建）/ 多仓工作区 / 依赖清单 / **双盘资产备份** / 依赖回推 / MCP。Electron 五页面可用，Windows 安装包（NSIS）已产出。
 
 ## 文档
 
@@ -42,6 +42,9 @@ src/shared/    跨进程协议类型
 | 保留策略透传 / 体积守卫 | `asset prune` / `asset guard` |
 | 配置导出导入 | `config export|import` |
 | 合并冲突面板（GUI） | 备份页「三路合并」 |
+| 同步检查 / 快进拉取 | `sync check` / `sync pull [--fetch]` |
+| 排除预设 | `exclude preset-list / preset-enable / preset-disable` |
+| vendor 模板清单 | `vendor template-list` |
 | **回滚**（主仓 + 成员逐仓 checkout） | `checkout <id> [--force]` |
 | 索引从 trailer 重建 | `index rebuild` |
 | 多仓工作区状态（成员/角色/pin/dirty） | `ws status` |

@@ -75,6 +75,21 @@ enum Command {
         #[command(subcommand)]
         action: PolicyAction,
     },
+    /// Sync check / fast-forward pull.
+    Sync {
+        #[command(subcommand)]
+        action: SyncAction,
+    },
+    /// Exclude presets.
+    Exclude {
+        #[command(subcommand)]
+        action: ExcludeAction,
+    },
+    /// Vendor helpers.
+    Vendor {
+        #[command(subcommand)]
+        action: VendorAction,
+    },
     /// Configuration export/import.
     Config {
         #[command(subcommand)]
@@ -239,6 +254,31 @@ enum WorktreeAction {
 }
 
 #[derive(Subcommand)]
+enum SyncAction {
+    Check,
+    Pull {
+        #[arg(long)]
+        fetch: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum ExcludeAction {
+    #[command(name = "preset-list")]
+    PresetList,
+    #[command(name = "preset-enable")]
+    PresetEnable { name: String },
+    #[command(name = "preset-disable")]
+    PresetDisable { name: String },
+}
+
+#[derive(Subcommand)]
+enum VendorAction {
+    #[command(name = "template-list")]
+    TemplateList,
+}
+
+#[derive(Subcommand)]
 enum ConfigAction {
     Export {
         #[arg(long)]
@@ -394,6 +434,33 @@ fn run(cli: &Cli, root: &Path) -> Result<Envelope<serde_json::Value>, CoreError>
             AssetAction::Restore { snapshot, target } => Ok(success(
                 "gitmove_asset_restore",
                 gitmove_core::asset::restore(root, snapshot, target.as_deref())?,
+            )),
+        },
+        Command::Sync { action } => match action {
+            SyncAction::Check => Ok(success("gitmove_sync_check", gitmove_core::misc::check(root)?)),
+            SyncAction::Pull { fetch } => Ok(success("gitmove_sync_pull", gitmove_core::misc::pull(root, *fetch)?)),
+        },
+        Command::Exclude { action } => match action {
+            ExcludeAction::PresetList => Ok(success(
+                "gitmove_exclude_presets",
+                serde_json::json!({
+                    "presets": gitmove_core::misc::presets(),
+                    "active": gitmove_core::misc::preset_active(root)
+                }),
+            )),
+            ExcludeAction::PresetEnable { name } => Ok(success(
+                "gitmove_exclude_enable",
+                gitmove_core::misc::preset_enable(root, name)?,
+            )),
+            ExcludeAction::PresetDisable { name } => Ok(success(
+                "gitmove_exclude_disable",
+                gitmove_core::misc::preset_disable(root, name)?,
+            )),
+        },
+        Command::Vendor { action } => match action {
+            VendorAction::TemplateList => Ok(success(
+                "gitmove_vendor_templates",
+                gitmove_core::misc::vendor_templates(),
             )),
         },
         Command::Config { action } => match action {

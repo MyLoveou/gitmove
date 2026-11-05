@@ -12,6 +12,7 @@ pub mod error;
 pub mod git;
 pub mod json;
 pub mod merge;
+pub mod misc;
 pub mod paths;
 pub mod policy;
 pub mod registry;
