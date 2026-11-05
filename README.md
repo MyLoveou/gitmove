@@ -2,7 +2,7 @@
 
 项目工作区的版本控制与备份编排层：一个大项目由**多个 git 仓库**组成（主仓 + AI 规范库 + 工具库 + 本地素材仓），gitmove 把这些仓库当作 **Member** 管理，并把**代码（git）**与**大体积素材（restic）**编成同一个可回滚的**修订（Revision）**。
 
-> 状态：**v0.5.0**（2026-11-06）。Rust 单二进制已覆盖全部日常命令。Rust 核心接管：审计 / 修订（提交·时间线·回滚·重建）/ 多仓工作区 / 依赖清单 / **双盘资产备份** / 依赖回推 / MCP。Electron 五页面可用，Windows 安装包（NSIS）已产出。
+> 状态：**v0.6.0**（2026-11-06）。应用只依赖 Rust 核心（安装包自带），Python 版仅作历史参考。Rust 核心接管：审计 / 修订（提交·时间线·回滚·重建）/ 多仓工作区 / 依赖清单 / **双盘资产备份** / 依赖回推 / MCP。Electron 五页面可用，Windows 安装包（NSIS）已产出。
 
 ## 文档
 
@@ -79,7 +79,7 @@ $env:GITMOVE_CORE = "$PWD\target\release\gitmove-core.exe"
 npm run smoke                         # SMOKE OK projects=6 / audit=6 / ws / revisions / renderer
 ```
 
-引擎选择顺序：`GITMOVE_CORE` → `target/release` → `target/debug` → 回退 Python（`GITMOVE_PYTHON`）。
+引擎选择顺序：`GITMOVE_CORE` → 安装包 `resources/core` → `target/release` → `target/debug`。应用**不再需要 Python**。
 
 ## 里程碑
 

@@ -1,16 +1,11 @@
 import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import { delimiter, join } from 'node:path'
+import { join } from 'node:path'
 
 import type { Envelope } from '../shared/protocol'
 
 const DEFAULT_TIMEOUT_MS = 120_000
 
-export function pythonCommand(): string {
-  return process.env.GITMOVE_PYTHON?.trim() || 'python'
-}
-
-/** Locate the Rust core binary (M2+). Env wins; then the repo's cargo output. */
 export function coreBinary(): string | null {
   const explicit = process.env.GITMOVE_CORE?.trim()
   if (explicit && existsSync(explicit)) return explicit
@@ -23,23 +18,12 @@ export function coreBinary(): string | null {
   return candidates.find((candidate) => existsSync(candidate)) ?? null
 }
 
-export function engineName(): 'rust' | 'python' {
-  return coreBinary() ? 'rust' : 'python'
-}
-
-/** Locate the CLI entry for the M1 bridge (Python implementation). */
-export function resolveCli(): { command: string; args: string[] } {
-  const command = pythonCommand()
-  return { command, args: ['-m', 'gitmove'] }
+export function engineName(): 'rust' {
+  return 'rust'
 }
 
 export function sidecarDescription(): string {
-  const core = coreBinary()
-  if (core) return `${core} (rust core)`
-  const { command, args } = resolveCli()
-  const venv = join(process.cwd(), '.venv', 'Scripts', 'python.exe')
-  const hint = !process.env.GITMOVE_PYTHON && !existsSync(venv) ? ' (set GITMOVE_PYTHON to pin a venv)' : ''
-  return `${command} ${args.join(' ')}${hint}`
+  return `${coreBinary() ?? 'gitmove-core.exe (missing)'} (rust core)`
 }
 
 interface RunOptions {
@@ -58,19 +42,18 @@ export class CliError extends Error {
   }
 }
 
-/** Run the CLI with --json and parse the shared envelope from stdout. */
 export async function runCli<T = unknown>(argv: string[], options: RunOptions = {}): Promise<Envelope<T>> {
   const core = coreBinary()
-  const { command, args } = core
-    ? { command: core, args: [] as string[] }
-    : resolveCli()
-  const fullArgs = [...args, ...argv, '--json']
+  if (!core) {
+    throw new CliError('Rust 核心缺失：重新安装 gitmove，或设置 GITMOVE_CORE 指向 gitmove-core.exe', 'CORE_REQUIRED')
+  }
+  const fullArgs = [...argv, '--json']
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS
 
   return new Promise<Envelope<T>>((resolve, reject) => {
-    const child = spawn(command, fullArgs, {
+    const child = spawn(core, fullArgs, {
       cwd: options.cwd,
-      env: { ...process.env, PYTHONIOENCODING: 'utf-8', ...options.env },
+      env: { ...process.env, ...options.env },
       windowsHide: true
     })
 
@@ -81,7 +64,7 @@ export async function runCli<T = unknown>(argv: string[], options: RunOptions = 
       if (settled) return
       settled = true
       child.kill()
-      reject(new CliError(`CLI timed out after ${timeoutMs}ms: ${command} ${fullArgs.join(' ')}`, 'CLI_TIMEOUT'))
+      reject(new CliError(`core timed out after ${timeoutMs}ms`, 'CLI_TIMEOUT'))
     }, timeoutMs)
 
     child.stdout.on('data', (chunk: Buffer) => (stdout += chunk.toString('utf8')))
@@ -91,17 +74,15 @@ export async function runCli<T = unknown>(argv: string[], options: RunOptions = 
       if (settled) return
       settled = true
       clearTimeout(timer)
-      reject(new CliError(`无法启动 CLI（${command}）：${error.message}`, 'CLI_SPAWN_FAILED'))
+      reject(new CliError(`无法启动核心：${error.message}`, 'CLI_SPAWN_FAILED'))
     })
 
     child.on('close', (code) => {
       if (settled) return
       settled = true
       clearTimeout(timer)
-
       const payload = extractEnvelope(stdout)
       if (payload) {
-        // 1 = user-level error, still a valid envelope; 0 = success.
         resolve(payload)
         return
       }
@@ -109,18 +90,11 @@ export async function runCli<T = unknown>(argv: string[], options: RunOptions = 
         reject(new CliError(stderr.trim() || '环境缺失（退出码 2）', 'ENV_MISSING', stderr))
         return
       }
-      reject(
-        new CliError(
-          stderr.trim() || `CLI 失败（退出码 ${code ?? 'null'}）且无 JSON 输出`,
-          'CLI_NO_ENVELOPE',
-          stderr
-        )
-      )
+      reject(new CliError(stderr.trim() || `core 失败（退出码 ${code ?? 'null'}）`, 'CLI_NO_ENVELOPE', stderr))
     })
   })
 }
 
-/** Envelopes are the last JSON object on stdout (warnings may precede them). */
 export function extractEnvelope(text: string): Envelope | null {
   const trimmed = text.trim()
   if (!trimmed) return null
@@ -128,7 +102,7 @@ export function extractEnvelope(text: string): Envelope | null {
     const parsed = JSON.parse(trimmed)
     return isEnvelope(parsed) ? parsed : null
   } catch {
-    // fall through: find the last line that parses as an envelope
+    // keep looking
   }
   const lines = trimmed.split(/\r?\n/)
   for (let i = lines.length - 1; i >= 0; i -= 1) {
@@ -138,7 +112,7 @@ export function extractEnvelope(text: string): Envelope | null {
       const parsed = JSON.parse(line)
       if (isEnvelope(parsed)) return parsed
     } catch {
-      // keep looking
+      // ignore
     }
   }
   return null
@@ -148,9 +122,4 @@ function isEnvelope(value: unknown): value is Envelope {
   if (typeof value !== 'object' || value === null) return false
   const record = value as Record<string, unknown>
   return typeof record.tool === 'string' && 'ok' in record
-}
-
-/** Absolute path helper used by the renderer header. */
-export function describeEnvironment(): string {
-  return [process.platform, process.arch, `path=${(process.env.PATH ?? '').split(delimiter).length} entries`].join(' · ')
 }

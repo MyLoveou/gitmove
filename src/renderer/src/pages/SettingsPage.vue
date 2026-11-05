@@ -33,7 +33,7 @@ const info = computed(() => store.info)
             </td>
           </tr>
           <tr>
-            <th>sidecar</th>
+            <th>核心</th>
             <td class="mono dim">{{ info?.sidecar ?? '—' }}</td>
           </tr>
           <tr>
@@ -53,7 +53,7 @@ const info = computed(() => store.info)
     </div>
 
     <p class="footnote">
-      环境变量：<code>GITMOVE_CORE</code> 指定 Rust 核心二进制；<code>GITMOVE_PYTHON</code> 指定过渡期 Python；
+      环境变量：<code>GITMOVE_CORE</code> 可覆盖核心二进制路径（默认使用安装包内 <code>resources/core</code>）。
       若 Electron 被以 <code>ELECTRON_RUN_AS_NODE=1</code> 启动需先清除。
     </p>
   </section>
