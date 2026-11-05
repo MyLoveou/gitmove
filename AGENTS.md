@@ -1,9 +1,9 @@
-﻿# 工作约定（gitmove v2）
+# 工作约定（gitmove v2）
 
 ## 1. 阶段
 
 - **M0 已完成**（需求/架构/ADR 已确认）。自 M1 起开始写实现代码。
-- M1 范围：Electron 壳 + Vue 骨架 + 调现有 Python CLI（只读）。M1 不碰写路径。
+- M1 已完成（Electron 壳 + Vue + sidecar）。M2/M3 已完成（Rust 只读核心 + Revision）。- M4 起接管写路径；在此之前 Python 只修 bug。
 
 ## 2. 代码结构
 

@@ -1,12 +1,7 @@
 import { app } from 'electron'
 
-import {
-  type AppInfo,
-  type AuditRow,
-  type Op,
-  type ProjectRow
-} from '../shared/protocol'
-import { runCli, sidecarDescription } from './sidecar'
+import type { AppInfo, AuditRow, CommitOutcome, Op, ProjectRow, RevisionRow, WorkspaceStatus } from '../shared/protocol'
+import { coreBinary, engineName, runCli, sidecarDescription } from './sidecar'
 
 export interface OpResult<T = unknown> {
   ok: boolean
@@ -14,16 +9,26 @@ export interface OpResult<T = unknown> {
   error?: { code: string; message: string; steps?: string[] }
 }
 
-async function call<T>(key: string, argv: string[], cwd?: string): Promise<T> {
+async function call<T>(argv: string[], cwd?: string): Promise<T> {
   const envelope = await runCli<T>(argv, { cwd })
   if (!envelope.ok) {
     const error = envelope.error
-    throw Object.assign(new Error(error?.message ?? `${key} failed`), {
+    throw Object.assign(new Error(error?.message ?? 'CLI failed'), {
       code: error?.code ?? 'CLI_ERROR',
       steps: error?.steps ?? []
     })
   }
   return envelope.data as T
+}
+
+function requireCore(): void {
+  if (!coreBinary()) {
+    const error = new Error('该操作需要 Rust 核心：先运行 cargo build --release，或设置 GITMOVE_CORE') as Error & {
+      code?: string
+    }
+    error.code = 'CORE_REQUIRED'
+    throw error
+  }
 }
 
 export async function handleOp(request: Op): Promise<OpResult> {
@@ -34,21 +39,52 @@ export async function handleOp(request: Op): Promise<OpResult> {
           version: app.getVersion(),
           platform: `${process.platform}-${process.arch}`,
           python: process.env.GITMOVE_PYTHON ?? 'python',
-          sidecar: sidecarDescription()
+          sidecar: sidecarDescription(),
+          engine: engineName(),
+          core: coreBinary()
         }
         return { ok: true, data: info }
       }
       case 'projects.list': {
-        const rows = await call<ProjectRow[]>('projects.list', ['projects', 'list'])
+        const rows = await call<ProjectRow[]>(['projects', 'list'])
         return { ok: true, data: rows }
       }
       case 'audit.all': {
-        const rows = await call<AuditRow[]>('audit.all', ['audit', '--all'])
+        const rows = await call<AuditRow[]>(['audit', '--all'])
         return { ok: true, data: rows }
       }
       case 'doctor.one': {
-        const data = await call<unknown>('doctor.one', ['-C', request.repo, 'doctor'], request.repo)
+        const data = await call<unknown>(['-C', request.repo, 'doctor'], request.repo)
         return { ok: true, data }
+      }
+      case 'rev.log': {
+        requireCore()
+        const rows = await call<RevisionRow[]>(['-C', request.workspace, 'rev', 'log', '--limit', String(request.limit ?? 50)])
+        return { ok: true, data: rows }
+      }
+      case 'rev.show': {
+        requireCore()
+        const row = await call<RevisionRow>(['-C', request.workspace, 'rev', 'show', String(request.id)])
+        return { ok: true, data: row }
+      }
+      case 'rev.commit': {
+        requireCore()
+        const argv = ['-C', request.workspace, 'commit', '-m', request.message]
+        if (request.members) argv.push('--members')
+        const outcome = await call<CommitOutcome>(argv)
+        return { ok: true, data: outcome }
+      }
+      case 'rev.checkout': {
+        requireCore()
+        const argv = ['-C', request.workspace, 'checkout', String(request.id)]
+        if (request.force) argv.push('--force')
+        const outcome = await call<unknown>(argv)
+        return { ok: true, data: outcome }
+      }
+      case 'ws.status': {
+        requireCore()
+        const status = await call<WorkspaceStatus>(['-C', request.workspace, 'ws', 'status'])
+        return { ok: true, data: status }
       }
       default: {
         const exhaustive: never = request

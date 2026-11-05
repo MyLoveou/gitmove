@@ -9,10 +9,10 @@ const route = useRoute()
 
 const nav = [
   { label: '总览', hint: '项目与健康', to: '/', enabled: true },
-  { label: '提交图', hint: 'M3', to: '/graph', enabled: false },
-  { label: '依赖', hint: 'M4', to: '/deps', enabled: false },
+  { label: '提交图', hint: 'M3', to: '/graph', enabled: true },
+  { label: '工作区', hint: 'M2', to: '/workspace', enabled: true },
   { label: '备份', hint: 'M4', to: '/backup', enabled: false },
-  { label: '设置', hint: 'M5', to: '/settings', enabled: false }
+  { label: '设置', hint: 'M5', to: '/settings', enabled: true }
 ]
 
 const statusText = computed(() => {

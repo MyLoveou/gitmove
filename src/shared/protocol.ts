@@ -1,5 +1,3 @@
-/** Shared contract between main, preload and renderer. */
-
 export interface Envelope<T = unknown> {
   schema_version: number
   tool: string
@@ -38,11 +36,58 @@ export interface AuditRow {
   own_deps: number
 }
 
+export interface RevisionMember {
+  member: string
+  commit: string
+  dirty: boolean
+}
+
+export interface RevisionRow {
+  id: number
+  status: string
+  git_commit: string | null
+  snapshot: string | null
+  message: string
+  created_at: string
+  branch: string | null
+  parents: number[]
+  members: RevisionMember[]
+}
+
+export interface CommitOutcome {
+  revision: number
+  git_commit: string | null
+  members_committed: string[]
+  dirty_members: string[]
+  trailer_written: boolean
+}
+
+export interface MemberStatus {
+  name: string
+  path: string
+  role: string
+  strategy: string
+  exists: boolean
+  head: string | null
+  pin: string | null
+  dirty: boolean
+  missing: boolean
+}
+
+export interface WorkspaceStatus {
+  name: string
+  root: string
+  declared: boolean
+  members: MemberStatus[]
+}
+
 export interface AppInfo {
   version: string
   platform: string
   python: string
   sidecar: string
+  engine: 'rust' | 'python'
+  core: string | null
 }
 
 export type Op =
@@ -50,5 +95,10 @@ export type Op =
   | { op: 'projects.list' }
   | { op: 'audit.all' }
   | { op: 'doctor.one'; repo: string }
+  | { op: 'rev.log'; workspace: string; limit?: number }
+  | { op: 'rev.show'; workspace: string; id: number }
+  | { op: 'rev.commit'; workspace: string; message: string; members?: boolean }
+  | { op: 'rev.checkout'; workspace: string; id: number; force?: boolean }
+  | { op: 'ws.status'; workspace: string }
 
 export const IPC_INVOKE = 'gitmove:invoke'

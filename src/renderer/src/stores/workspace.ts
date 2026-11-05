@@ -1,12 +1,14 @@
 import { defineStore } from 'pinia'
 
-import type { AuditRow, ProjectRow } from '../../../shared/protocol'
+import type { AuditRow, CommitOutcome, ProjectRow, RevisionRow, WorkspaceStatus } from '../../../shared/protocol'
 
 export interface AppInfo {
   version: string
   platform: string
   python: string
   sidecar: string
+  engine: 'rust' | 'python'
+  core: string | null
 }
 
 type Result<T> = { ok: boolean; data?: T; error?: { code: string; message: string; steps?: string[] } }
@@ -14,8 +16,9 @@ type Result<T> = { ok: boolean; data?: T; error?: { code: string; message: strin
 async function invoke<T>(request: Parameters<Window['gitmove']['invoke']>[0]): Promise<T> {
   const result = (await window.gitmove.invoke(request)) as Result<T>
   if (!result.ok) {
-    const error = new Error(result.error?.message ?? '操作失败') as Error & { code?: string }
+    const error = new Error(result.error?.message ?? '操作失败') as Error & { code?: string; steps?: string[] }
     error.code = result.error?.code
+    error.steps = result.error?.steps
     throw error
   }
   return result.data as T
@@ -26,15 +29,21 @@ export const useWorkspaceStore = defineStore('workspace', {
     info: null as AppInfo | null,
     projects: [] as ProjectRow[],
     audit: [] as AuditRow[],
+    currentWorkspace: '',
+    revisions: [] as RevisionRow[],
+    workspaceStatus: null as WorkspaceStatus | null,
     loading: false,
+    busy: false,
     error: null as string | null,
+    notice: null as string | null,
     lastRefresh: null as Date | null
   }),
   getters: {
     errors: (state) => state.audit.reduce((sum, row) => sum + row.errors, 0),
     warns: (state) => state.audit.reduce((sum, row) => sum + row.warns, 0),
     totalBytes: (state) => state.audit.reduce((sum, row) => sum + row.tracked_bytes, 0),
-    totalFiles: (state) => state.audit.reduce((sum, row) => sum + row.tracked_files, 0)
+    totalFiles: (state) => state.audit.reduce((sum, row) => sum + row.tracked_files, 0),
+    canCommit: (state) => state.info?.engine === 'rust'
   },
   actions: {
     async bootstrap() {
@@ -43,6 +52,11 @@ export const useWorkspaceStore = defineStore('workspace', {
       try {
         this.info = await invoke<AppInfo>({ op: 'app.info' })
         await this.refreshProjects()
+        const first = this.projects[0]
+        if (first && !this.currentWorkspace) {
+          this.currentWorkspace = first.path
+          await this.refreshWorkspace()
+        }
       } catch (error) {
         this.error = (error as Error).message
       } finally {
@@ -60,6 +74,53 @@ export const useWorkspaceStore = defineStore('workspace', {
         this.error = (error as Error).message
       } finally {
         this.loading = false
+      }
+    },
+    async setWorkspace(path: string) {
+      this.currentWorkspace = path
+      await this.refreshWorkspace()
+    },
+    async refreshWorkspace() {
+      if (!this.currentWorkspace) return
+      this.busy = true
+      this.error = null
+      try {
+        this.workspaceStatus = await invoke<WorkspaceStatus>({ op: 'ws.status', workspace: this.currentWorkspace })
+        this.revisions = await invoke<RevisionRow[]>({ op: 'rev.log', workspace: this.currentWorkspace, limit: 50 })
+      } catch (error) {
+        const err = error as Error & { code?: string }
+        if (err.code === 'CORE_REQUIRED') {
+          this.workspaceStatus = null
+          this.revisions = []
+        } else {
+          this.error = err.message
+        }
+      } finally {
+        this.busy = false
+      }
+    },
+    async commit(message: string, members: boolean) {
+      if (!this.currentWorkspace) return false
+      this.busy = true
+      this.error = null
+      this.notice = null
+      try {
+        const outcome = await invoke<CommitOutcome>({
+          op: 'rev.commit',
+          workspace: this.currentWorkspace,
+          message,
+          members
+        })
+        this.notice = `已创建修订 ${outcome.revision}（${outcome.git_commit?.slice(0, 7) ?? 'no-commit'}）`
+        await this.refreshWorkspace()
+        await this.refreshProjects()
+        return true
+      } catch (error) {
+        const err = error as Error & { steps?: string[] }
+        this.error = err.steps?.length ? `${err.message}（${err.steps.join(' / ')}）` : err.message
+        return false
+      } finally {
+        this.busy = false
       }
     }
   }

@@ -98,7 +98,13 @@ function statusClass(status: string): string {
           </tr>
         </thead>
         <tbody>
-          <tr v-for="row in rows" :key="row.project.alias">
+          <tr
+            v-for="row in rows"
+            :key="row.project.alias"
+            class="row-click"
+            :class="{ selected: store.currentWorkspace === row.project.path }"
+            @click="store.setWorkspace(row.project.path)"
+          >
             <td class="mono strong">{{ row.project.alias }}</td>
             <td>
               <span class="badge" :class="statusClass(row.audit?.status ?? row.project.status)">
@@ -122,6 +128,9 @@ function statusClass(status: string): string {
       </table>
     </div>
 
+    <p class="footnote">
+      点击任意行可把它设为当前工作区（提交图 / 工作区页随之切换）。<br />
+    </p>
     <p class="footnote">
       数据源：<code>gitmove projects list --json</code> + <code>gitmove audit --all --json</code>。
       M2 起由 Rust 核心接管，接口保持不变。

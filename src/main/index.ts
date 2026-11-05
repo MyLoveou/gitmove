@@ -31,10 +31,12 @@ function createWindow(): BrowserWindow {
     return { action: 'deny' }
   })
 
+  const startPage = process.env.GITMOVE_START_PAGE?.trim()
   if (process.env.ELECTRON_RENDERER_URL) {
-    void window.loadURL(process.env.ELECTRON_RENDERER_URL)
+    const url = process.env.ELECTRON_RENDERER_URL + (startPage ? `#${startPage}` : '')
+    void window.loadURL(url)
   } else {
-    void window.loadFile(join(__dirname, '../renderer/index.html'))
+    void window.loadFile(join(__dirname, '../renderer/index.html'), startPage ? { hash: startPage } : undefined)
   }
   return window
 }
@@ -70,7 +72,14 @@ async function loadRendererProbe(): Promise<boolean> {
 }
 
 async function runSmoke(): Promise<number> {
-  const ops: Op[] = [{ op: 'app.info' }, { op: 'projects.list' }, { op: 'audit.all' }]
+  const cwd = process.cwd()
+  const ops: Op[] = [
+    { op: 'app.info' },
+    { op: 'projects.list' },
+    { op: 'audit.all' },
+    { op: 'ws.status', workspace: cwd },
+    { op: 'rev.log', workspace: cwd, limit: 5 }
+  ]
   for (const op of ops) {
     const result = await handleOp(op)
     if (!result.ok) {
@@ -83,6 +92,12 @@ async function runSmoke(): Promise<number> {
     } else if (op.op === 'audit.all') {
       const rows = result.data as Array<{ alias: string; tracked_files: number; tracked_bytes: number }>
       console.log(`SMOKE OK audit=${rows.length} first=${rows[0]?.alias}:${rows[0]?.tracked_files}f/${rows[0]?.tracked_bytes}b`)
+    } else if (op.op === 'ws.status') {
+      const status = result.data as { name: string; members: unknown[] }
+      console.log(`SMOKE OK ws=${status.name} members=${status.members.length}`)
+    } else if (op.op === 'rev.log') {
+      const rows = result.data as unknown[]
+      console.log(`SMOKE OK revisions=${rows.length}`)
     } else {
       const info = result.data as { version: string; sidecar: string }
       console.log(`SMOKE INFO version=${info.version} sidecar=${info.sidecar}`)

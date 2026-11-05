@@ -10,6 +10,21 @@ export function pythonCommand(): string {
   return process.env.GITMOVE_PYTHON?.trim() || 'python'
 }
 
+/** Locate the Rust core binary (M2+). Env wins; then the repo's cargo output. */
+export function coreBinary(): string | null {
+  const explicit = process.env.GITMOVE_CORE?.trim()
+  if (explicit && existsSync(explicit)) return explicit
+  const candidates = [
+    join(process.cwd(), 'target', 'release', 'gitmove-core.exe'),
+    join(process.cwd(), 'target', 'debug', 'gitmove-core.exe')
+  ]
+  return candidates.find((candidate) => existsSync(candidate)) ?? null
+}
+
+export function engineName(): 'rust' | 'python' {
+  return coreBinary() ? 'rust' : 'python'
+}
+
 /** Locate the CLI entry for the M1 bridge (Python implementation). */
 export function resolveCli(): { command: string; args: string[] } {
   const command = pythonCommand()
@@ -17,6 +32,8 @@ export function resolveCli(): { command: string; args: string[] } {
 }
 
 export function sidecarDescription(): string {
+  const core = coreBinary()
+  if (core) return `${core} (rust core)`
   const { command, args } = resolveCli()
   const venv = join(process.cwd(), '.venv', 'Scripts', 'python.exe')
   const hint = !process.env.GITMOVE_PYTHON && !existsSync(venv) ? ' (set GITMOVE_PYTHON to pin a venv)' : ''
@@ -41,7 +58,10 @@ export class CliError extends Error {
 
 /** Run the CLI with --json and parse the shared envelope from stdout. */
 export async function runCli<T = unknown>(argv: string[], options: RunOptions = {}): Promise<Envelope<T>> {
-  const { command, args } = resolveCli()
+  const core = coreBinary()
+  const { command, args } = core
+    ? { command: core, args: [] as string[] }
+    : resolveCli()
   const fullArgs = [...args, ...argv, '--json']
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS
 
