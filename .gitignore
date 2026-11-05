@@ -1,0 +1,26 @@
+# Rust
+/target
+**/*.rs.bk
+
+# Node / Electron
+node_modules/
+dist/
+dist-electron/
+release/
+*.log
+
+# Python（过渡期，若需要跑金样对比）
+.venv/
+__pycache__/
+*.pyc
+
+# 本地状态
+.gitmove/index.sqlite
+*.sqlite-journal
+*.sqlite-wal
+
+# 编辑器
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
