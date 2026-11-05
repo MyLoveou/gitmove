@@ -70,7 +70,7 @@ async function loadRendererProbe(): Promise<boolean> {
 }
 
 async function runSmoke(): Promise<number> {
-  const ops: Op[] = [{ op: 'app.info' }, { op: 'projects.list' }]
+  const ops: Op[] = [{ op: 'app.info' }, { op: 'projects.list' }, { op: 'audit.all' }]
   for (const op of ops) {
     const result = await handleOp(op)
     if (!result.ok) {
@@ -80,6 +80,9 @@ async function runSmoke(): Promise<number> {
     if (op.op === 'projects.list') {
       const rows = result.data as unknown[]
       console.log(`SMOKE OK projects=${rows.length}`)
+    } else if (op.op === 'audit.all') {
+      const rows = result.data as Array<{ alias: string; tracked_files: number; tracked_bytes: number }>
+      console.log(`SMOKE OK audit=${rows.length} first=${rows[0]?.alias}:${rows[0]?.tracked_files}f/${rows[0]?.tracked_bytes}b`)
     } else {
       const info = result.data as { version: string; sidecar: string }
       console.log(`SMOKE INFO version=${info.version} sidecar=${info.sidecar}`)

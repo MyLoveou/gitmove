@@ -21,6 +21,18 @@ function formatBytes(bytes: number): string {
   return `${(bytes / 1024 ** index).toFixed(index === 0 ? 0 : 1)} ${units[index]}`
 }
 
+function versionText(audit: AuditRow | undefined): string {
+  if (!audit) return '—'
+  if (audit.dep_label && audit.dep_label !== '—') return audit.dep_label
+  return audit.own_deps ? `${audit.own_deps} 项` : '—'
+}
+
+function depotAge(audit: AuditRow | undefined): string {
+  if (!audit?.depot_configured) return '—'
+  if (audit.depot_age_days === null || audit.depot_age_days === undefined) return 'never'
+  return `${audit.depot_age_days.toFixed(1)}d`
+}
+
 function statusClass(status: string): string {
   if (status === 'OK') return 'ok'
   if (status === 'MISSING' || status === 'NOT_GIT') return 'bad'
@@ -93,12 +105,10 @@ function statusClass(status: string): string {
                 {{ row.audit?.status ?? row.project.status }}
               </span>
             </td>
-            <td class="mono dim">{{ row.audit?.dep_label ?? '—' }}</td>
+            <td class="mono dim">{{ versionText(row.audit) }}</td>
             <td class="num">{{ (row.audit?.tracked_files ?? 0).toLocaleString() }}</td>
             <td class="num">{{ formatBytes(row.audit?.tracked_bytes ?? 0) }}</td>
-            <td class="mono dim">
-              {{ row.audit?.depot_configured ? `${row.audit.depot_age_days ?? 0}d` : '—' }}
-            </td>
+            <td class="mono dim">{{ depotAge(row.audit) }}</td>
             <td class="num" :class="{ bad: (row.audit?.errors ?? 0) > 0 }">{{ row.audit?.errors ?? 0 }}</td>
             <td class="num" :class="{ warn: (row.audit?.warns ?? 0) > 0 }">{{ row.audit?.warns ?? 0 }}</td>
             <td class="mono dim path">{{ row.project.path }}</td>
