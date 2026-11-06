@@ -133,9 +133,9 @@ function zoom(delta: number) {
     </div>
     <div class="graph-scroll">
       <svg
-        :width="Math.max(320, layout.width) * scale"
-        :height="Math.max(120, layout.height) * scale"
-        :viewBox="`0 0 ${Math.max(320, layout.width)} ${Math.max(120, layout.height)}`"
+        :width="Math.max(1100, layout.width + 320) * scale"
+        :height="Math.max(160, layout.height + 40) * scale"
+        :viewBox="`0 0 ${Math.max(1100, layout.width + 320)} ${Math.max(160, layout.height + 40)}`"
       >
         <g>
           <path

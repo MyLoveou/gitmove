@@ -360,3 +360,169 @@ pub fn refs(root: &Path) -> CoreResult<Refs> {
         remote: remote.into_iter().collect(),
     })
 }
+
+
+#[derive(Debug, Clone, Serialize)]
+pub struct MemberSync {
+    pub member: String,
+    pub commit: String,
+    pub changed: bool,
+    pub message: String,
+}
+
+fn read_lock_entries(root: &Path) -> Vec<(String, String, String)> {
+    let mut rows = Vec::new();
+    let Ok(raw) = std::fs::read_to_string(paths::workspace_lock(root)) else {
+        return rows;
+    };
+    let Ok(parsed) = toml::from_str::<toml::Value>(&raw) else {
+        return rows;
+    };
+    if let Some(items) = parsed.get("member").and_then(|value| value.as_array()) {
+        for item in items {
+            rows.push((
+                item.get("name").and_then(|value| value.as_str()).unwrap_or_default().to_string(),
+                item.get("commit").and_then(|value| value.as_str()).unwrap_or_default().to_string(),
+                item.get("ref").and_then(|value| value.as_str()).unwrap_or_default().to_string(),
+            ));
+        }
+    }
+    rows
+}
+
+fn write_lock(root: &Path, rows: &[(String, String, String)]) -> CoreResult<()> {
+    let mut text = String::from("version = 1\n");
+    text.push_str(&format!("generated = \"{}\"\n", chrono::Utc::now().to_rfc3339()));
+    for (name, commit, reference) in rows {
+        text.push_str("\n[[member]]\n");
+        text.push_str(&format!("name = \"{name}\"\n"));
+        text.push_str(&format!("commit = \"{commit}\"\n"));
+        if !reference.is_empty() {
+            text.push_str(&format!("ref = \"{reference}\"\n"));
+        }
+    }
+    std::fs::write(paths::workspace_lock(root), text)?;
+    Ok(())
+}
+
+fn current_pins(root: &Path) -> Vec<(String, String, String)> {
+    let mut rows = Vec::new();
+    if let Ok((_, members, _)) = load(root) {
+        for member in members {
+            if let Some(sha) = git::head(&member.path) {
+                let reference = if member.track.is_empty() { String::new() } else { member.track.clone() };
+                rows.push((member.name, sha, reference));
+            }
+        }
+    }
+    rows
+}
+
+/// `ws sync`: fetch and check out the commits recorded in `workspace.lock.toml`.
+/// When the lock is missing it is generated from the current heads (bootstrap).
+pub fn sync(root: &Path, member_filter: Option<&str>) -> CoreResult<Vec<MemberSync>> {
+    let mut entries = read_lock_entries(root);
+    let mut bootstrapped = false;
+    if entries.is_empty() {
+        entries = current_pins(root);
+        write_lock(root, &entries)?;
+        bootstrapped = true;
+    }
+    let (_, members, _) = load(root)?;
+    let mut results = Vec::new();
+    for member in members {
+        if let Some(filter) = member_filter {
+            if member.name != filter {
+                continue;
+            }
+        }
+        if !member.path.exists() || !git::is_repo(&member.path) {
+            results.push(MemberSync {
+                member: member.name,
+                commit: String::new(),
+                changed: false,
+                message: "missing".to_string(),
+            });
+            continue;
+        }
+        let _ = git::run_allow_fail(&member.path, &["fetch", "--all", "--prune"]);
+        let target = entries
+            .iter()
+            .find(|(name, _, _)| name == &member.name)
+            .map(|(_, commit, reference)| if commit.is_empty() { reference.clone() } else { commit.clone() })
+            .filter(|value| !value.is_empty())
+            .or_else(|| (!member.pin.is_empty()).then(|| member.pin.clone()));
+        let Some(target) = target else {
+            results.push(MemberSync {
+                member: member.name,
+                commit: String::new(),
+                changed: false,
+                message: "no pin".to_string(),
+            });
+            continue;
+        };
+        let before = git::head(&member.path).unwrap_or_default();
+        let message = match git::run(&member.path, &["checkout", "--detach", &target]) {
+            Ok(_) => {
+                let after = git::head(&member.path).unwrap_or_default();
+                if after == before { "up to date".to_string() } else { "checked out".to_string() }
+            }
+            Err(err) => err.message,
+        };
+        results.push(MemberSync {
+            member: member.name,
+            commit: git::head(&member.path).unwrap_or_default(),
+            changed: message == "checked out",
+            message: if bootstrapped { "lock created".to_string() } else { message },
+        });
+    }
+    Ok(results)
+}
+
+/// `ws update`: fetch, resolve the new target and write it back to the lock.
+pub fn update(root: &Path, member_filter: Option<&str>, to: Option<&str>) -> CoreResult<Vec<MemberSync>> {
+    let (_, members, _) = load(root)?;
+    let mut entries = read_lock_entries(root);
+    if entries.is_empty() {
+        entries = current_pins(root);
+    }
+    let mut results = Vec::new();
+    for member in members {
+        if let Some(filter) = member_filter {
+            if member.name != filter {
+                continue;
+            }
+        }
+        if !member.path.exists() || !git::is_repo(&member.path) {
+            continue;
+        }
+        let _ = git::run_allow_fail(&member.path, &["fetch", "--all", "--prune"]);
+        let reference = to
+            .map(str::to_string)
+            .or_else(|| (!member.track.is_empty()).then(|| format!("origin/{}", member.track)))
+            .or_else(|| (!member.pin.is_empty()).then(|| member.pin.clone()))
+            .unwrap_or_else(|| "HEAD".to_string());
+        let resolved = match git::run_allow_fail(&member.path, &["rev-parse", &format!("{reference}^{{commit}}")]) {
+            Some(value) => value.trim().to_string(),
+            None => git::head(&member.path).unwrap_or_default(),
+        };
+        if resolved.is_empty() {
+            continue;
+        }
+        let previous = entries
+            .iter()
+            .position(|(name, _, _)| name == &member.name)
+            .map(|index| entries[index].1.clone())
+            .unwrap_or_default();
+        entries.retain(|(name, _, _)| name != &member.name);
+        entries.push((member.name.clone(), resolved.clone(), reference.clone()));
+        results.push(MemberSync {
+            member: member.name,
+            commit: resolved.clone(),
+            changed: previous != resolved,
+            message: if previous.is_empty() { "pinned".to_string() } else { format!("{} -> {}", &previous[..7.min(previous.len())], &resolved[..7.min(resolved.len())]) },
+        });
+    }
+    write_lock(root, &entries)?;
+    Ok(results)
+}

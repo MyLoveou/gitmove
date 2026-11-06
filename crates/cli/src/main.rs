@@ -153,6 +153,16 @@ enum WsAction {
     BranchSwitch { name: String },
     Merge { branch: String },
     Refs,
+    Sync {
+        #[arg(long)]
+        member: Option<String>,
+    },
+    Update {
+        #[arg(long)]
+        member: Option<String>,
+        #[arg(long)]
+        to: Option<String>,
+    },
     Diff {
         member: String,
     },
@@ -416,6 +426,14 @@ fn run(cli: &Cli, root: &Path) -> Result<Envelope<serde_json::Value>, CoreError>
                 Ok(success("gitmove_ws_merge", gitmove_core::workspace::merge(root, branch)?))
             }
             WsAction::Refs => Ok(success("gitmove_ws_refs", gitmove_core::workspace::refs(root)?)),
+            WsAction::Sync { member } => Ok(success(
+                "gitmove_ws_sync",
+                gitmove_core::workspace::sync(root, member.as_deref())?,
+            )),
+            WsAction::Update { member, to } => Ok(success(
+                "gitmove_ws_update",
+                gitmove_core::workspace::update(root, member.as_deref(), to.as_deref())?,
+            )),
             WsAction::Diff { member } => Ok(success("gitmove_ws_diff", gitmove_core::contribute::diff(root, member)?)),
             WsAction::Contribute { member, branch, no_push } => Ok(success(
                 "gitmove_ws_contribute",

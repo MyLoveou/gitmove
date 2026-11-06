@@ -129,6 +129,32 @@ export const useWorkspaceStore = defineStore('workspace', {
         this.error = (error as Error).message
       }
     },
+    async wsSync() {
+      if (!this.currentWorkspace) return
+      this.busy = true
+      try {
+        await invoke({ op: 'ws.sync', workspace: this.currentWorkspace })
+        this.notice = '已按 workspace.lock.toml 同步成员'
+        await this.refreshWorkspace()
+      } catch (error) {
+        this.error = (error as Error).message
+      } finally {
+        this.busy = false
+      }
+    },
+    async wsUpdate() {
+      if (!this.currentWorkspace) return
+      this.busy = true
+      try {
+        await invoke({ op: 'ws.update', workspace: this.currentWorkspace })
+        this.notice = '已更新 pin 并写入 workspace.lock.toml'
+        await this.refreshWorkspace()
+      } catch (error) {
+        this.error = (error as Error).message
+      } finally {
+        this.busy = false
+      }
+    },
     async pull(mode?: 'merge' | 'rebase') {
       if (!this.currentWorkspace) return
       this.busy = true

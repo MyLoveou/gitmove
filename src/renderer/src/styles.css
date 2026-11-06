@@ -758,7 +758,8 @@ tr.row-click:hover {
   border-radius: 8px;
   background: var(--bg);
   overflow: auto;
-  max-height: 420px;
+  max-height: 560px;
+  min-height: 180px;
 }
 
 .graph-node { cursor: pointer; }

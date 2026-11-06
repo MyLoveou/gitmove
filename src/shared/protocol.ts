@@ -207,6 +207,8 @@ export type Op =
   | { op: 'sync.check'; workspace: string }
   | { op: 'sync.pull'; workspace: string; fetch?: boolean; mode?: 'merge' | 'rebase' }
   | { op: 'ws.refs'; workspace: string }
+  | { op: 'ws.sync'; workspace: string; member?: string }
+  | { op: 'ws.update'; workspace: string; member?: string; to?: string }
   | { op: 'graph'; workspace: string; limit?: number; branch?: string; all?: boolean }
   | { op: 'logs.read'; lines?: number }
   | { op: 'rev.importGit'; workspace: string; limit?: number }

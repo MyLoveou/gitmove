@@ -194,6 +194,21 @@ export async function handleOp(request: Op): Promise<OpResult> {
         const data = await call<BranchRefs>(['-C', request.workspace, 'ws', 'refs'])
         return { ok: true, data }
       }
+      case 'ws.sync': {
+        requireCore()
+        const argv = ['-C', request.workspace, 'ws', 'sync']
+        if (request.member) argv.push('--member', request.member)
+        const data = await call<unknown[]>(argv)
+        return { ok: true, data }
+      }
+      case 'ws.update': {
+        requireCore()
+        const argv = ['-C', request.workspace, 'ws', 'update']
+        if (request.member) argv.push('--member', request.member)
+        if (request.to) argv.push('--to', request.to)
+        const data = await call<unknown[]>(argv)
+        return { ok: true, data }
+      }
       case 'graph': {
         requireCore()
         const argv = ['-C', request.workspace, 'graph', '--limit', String(request.limit ?? 200)]

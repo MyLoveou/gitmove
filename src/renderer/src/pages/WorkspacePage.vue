@@ -214,6 +214,8 @@ watch(() => store.currentWorkspace, () => {
           </label>
           <button class="btn" :disabled="busy || !target" @click="store.switchBranch(target)">切换</button>
           <button class="btn ghost" :disabled="busy" @click="load">刷新分支</button>
+          <button class="btn" :disabled="store.busy" @click="store.wsSync()">按 lock 同步</button>
+          <button class="btn" :disabled="store.busy" @click="store.wsUpdate()">更新 pin</button>
           <button class="btn ghost" :disabled="store.busy" @click="store.syncCheck()">同步检查</button>
           <button class="btn ghost" :disabled="store.busy" @click="store.pull()">快进拉取</button>
           <button class="btn ghost" :disabled="store.busy" @click="store.pull('merge')">合并拉取</button>
