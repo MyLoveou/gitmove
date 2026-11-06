@@ -117,6 +117,11 @@ enum ProjectsAction {
 
 #[derive(Subcommand)]
 enum RevAction {
+    #[command(name = "import-git")]
+    ImportGit {
+        #[arg(long, default_value_t = 200)]
+        limit: u32,
+    },
     Log {
         #[arg(long, default_value_t = 20)]
         limit: u32,
@@ -341,6 +346,10 @@ fn run(cli: &Cli, root: &Path) -> Result<Envelope<serde_json::Value>, CoreError>
             Ok(success("gitmove_audit", rows))
         }
         Command::Revision { action } => match action {
+            RevAction::ImportGit { limit } => Ok(success(
+                "gitmove_rev_import",
+                serde_json::json!({ "imported": gitmove_core::revision::import_git(root, *limit)? }),
+            )),
             RevAction::Log { limit } => Ok(success("gitmove_rev_log", gitmove_core::revision::log(root, *limit)?)),
             RevAction::Show { id } => Ok(success("gitmove_rev_show", gitmove_core::revision::show(root, *id)?)),
         },

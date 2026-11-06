@@ -1,7 +1,7 @@
-import { app } from 'electron'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { app, shell } from 'electron'
+import { copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { isAbsolute, join, normalize } from 'node:path'
 
 import type {
   AppInfo,
@@ -19,12 +19,32 @@ import type {
   RevisionRow,
   WorkspaceStatus
 } from '../shared/protocol'
+import { logDir, logEvent } from './logger'
 import { coreBinary, engineName, runCli, sidecarDescription } from './sidecar'
 
 export interface OpResult<T = unknown> {
   ok: boolean
   data?: T
   error?: { code: string; message: string; steps?: string[] }
+}
+
+
+/** Files the UI may read or edit, relative to the workspace root. */
+const EDITABLE_FILES = [
+  '.gitignore',
+  '.git/info/exclude',
+  '.gitmove/config.toml',
+  'workspace.toml',
+  'workspace.lock.toml',
+  'project.lock.toml'
+]
+
+function editablePath(workspace: string, relative: string): string {
+  const normalized = normalize(relative).replace(/\\/g, '/')
+  if (!EDITABLE_FILES.includes(normalized)) {
+    throw Object.assign(new Error(`不允许编辑该文件: ${relative}`), { code: 'FILE_NOT_ALLOWED' })
+  }
+  return join(workspace, normalized)
 }
 
 async function call<T>(argv: string[], cwd?: string): Promise<T> {
@@ -50,8 +70,32 @@ function requireCore(): void {
 }
 
 export async function handleOp(request: Op): Promise<OpResult> {
+  const started = Date.now()
   try {
     switch (request.op) {
+      case 'file.list': {
+        return { ok: true, data: EDITABLE_FILES.map((file) => ({ path: file, exists: existsSync(join(request.workspace, file)) })) }
+      }
+      case 'file.read': {
+        const path = editablePath(request.workspace, request.path)
+        const exists = existsSync(path)
+        return { ok: true, data: { path: request.path, exists, text: exists ? readFileSync(path, 'utf8') : '' } }
+      }
+      case 'file.write': {
+        const path = editablePath(request.workspace, request.path)
+        if (existsSync(path)) copyFileSync(path, path + '.bak')
+        writeFileSync(path, request.text, 'utf8')
+        logEvent('file.write', { path: request.path, bytes: request.text.length })
+        return { ok: true, data: { path: request.path, bytes: request.text.length } }
+      }
+      case 'open.logs': {
+        await shell.openPath(logDir())
+        return { ok: true, data: { dir: logDir() } }
+      }
+      case 'open.workspace': {
+        await shell.openPath(request.workspace)
+        return { ok: true, data: { dir: request.workspace } }
+      }
       case 'app.info': {
         const info: AppInfo = {
           version: app.getVersion(),
@@ -186,6 +230,13 @@ export async function handleOp(request: Op): Promise<OpResult> {
         const data = await call<{ toml: string }>(['-C', request.workspace, 'config', 'export'])
         return { ok: true, data }
       }
+      case 'rev.importGit': {
+        requireCore()
+        const argv = ['-C', request.workspace, 'rev', 'import-git']
+        if (request.limit) argv.push('--limit', String(request.limit))
+        const data = await call<{ imported: number }>(argv)
+        return { ok: true, data }
+      }
       case 'rev.rebuild': {
         requireCore()
         const data = await call<{ revisions: number }>(['-C', request.workspace, 'index', 'rebuild'])
@@ -225,9 +276,12 @@ export async function handleOp(request: Op): Promise<OpResult> {
     }
   } catch (error) {
     const err = error as Error & { code?: string; steps?: string[] }
+    logEvent('op.error', { op: request.op, code: err.code ?? 'OP_FAILED', message: err.message, ms: Date.now() - started })
     return {
       ok: false,
       error: { code: err.code ?? 'OP_FAILED', message: err.message, steps: err.steps }
     }
+  } finally {
+    if (request.op !== 'app.info') logEvent('op.done', { op: request.op, ms: Date.now() - started })
   }
 }

@@ -30,6 +30,7 @@ onMounted(() => {
 </script>
 
 <template>
+  <div class="titlebar"><span>gitmove</span></div>
   <div class="shell">
     <aside class="sidebar">
       <div class="brand">

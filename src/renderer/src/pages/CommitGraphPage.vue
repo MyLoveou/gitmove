@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 
 import { useWorkspaceStore } from '../stores/workspace'
 
@@ -26,6 +26,13 @@ function rollback(id: number) {
 function short(commit: string | null): string {
   return commit ? commit.slice(0, 7) : '—'
 }
+
+watch(
+  () => store.currentWorkspace,
+  () => {
+    void store.refreshWorkspace()
+  }
+)
 </script>
 
 <template>

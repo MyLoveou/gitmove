@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 
 import type { AssetStatusPayload, MergePlanPayload, AssetSnapshot } from '../../../shared/protocol'
 import { useWorkspaceStore } from '../stores/workspace'
@@ -123,6 +123,14 @@ function short(id: string): string {
 }
 
 void load()
+
+watch(
+  () => store.currentWorkspace,
+  () => {
+    void store.refreshWorkspace()
+    void (typeof load === 'function' ? load() : Promise.resolve())
+  }
+)
 </script>
 
 <template>
@@ -142,6 +150,10 @@ void load()
     </header>
 
     <div v-if="!store.canCommit" class="banner warn">需要 Rust 核心：<code>cargo build --release</code></div>
+    <div class="banner info">
+      用法：①「初始化仓库」只做一次（每块盘各建一个 restic 仓库）→ ②「备份全部」写入两块盘 → ③ 下方「快照」列出历史；
+      三路合并选 base/ours/theirs 三个快照即可分析。
+    </div>
     <div v-if="message" class="banner ok">{{ message }}</div>
 
     <div class="panel">

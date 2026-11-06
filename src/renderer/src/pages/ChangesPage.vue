@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 
 import type { ChangeRow } from '../../../shared/protocol'
 import { useWorkspaceStore } from '../stores/workspace'
@@ -27,6 +27,21 @@ const chosen = computed(() =>
     .filter((row) => selected.value[key(row)])
     .map((row) => ({ member: row.member, path: row.path }))
 )
+
+function codeLabel(code: string): string {
+  if (code === '??') return '未跟踪'
+  if (code.includes('A')) return '新增'
+  if (code.includes('D')) return '删除'
+  if (code.includes('R')) return '重命名'
+  if (code.includes('M')) return '修改'
+  return code
+}
+
+function toggleMember(member: string, value: boolean) {
+  const next = { ...selected.value }
+  for (const row of rows.value.filter((item) => item.member === member)) next[key(row)] = value
+  selected.value = next
+}
 
 function key(row: ChangeRow): string {
   return `${row.member}:${row.path}`
@@ -99,6 +114,13 @@ async function discardSelected() {
 }
 
 onMounted(load)
+
+watch(
+  () => store.currentWorkspace,
+  () => {
+    void load()
+  }
+)
 </script>
 
 <template>
@@ -133,13 +155,21 @@ onMounted(load)
     </div>
 
     <div v-for="group in groups" :key="group.member" class="panel pad">
-      <div class="merge-head"><strong>{{ group.member }}</strong><span class="dim">{{ group.items.length }} 个改动</span></div>
+      <div class="merge-head">
+        <input
+          type="checkbox"
+          :checked="group.items.every((item) => selected[key(item)])"
+          @change="toggleMember(group.member, ($event.target as HTMLInputElement).checked)"
+        />
+        <strong>{{ group.member }}</strong>
+        <span class="dim">{{ group.items.length }} 个改动</span>
+      </div>
       <table class="table">
         <thead><tr><th style="width:36px"></th><th>代码</th><th>路径</th></tr></thead>
         <tbody>
           <tr v-for="row in group.items" :key="key(row)">
             <td><input v-model="selected[key(row)]" type="checkbox" /></td>
-            <td class="mono dim">{{ row.code }}</td>
+            <td class="mono dim">{{ codeLabel(row.code) }}</td>
             <td class="mono">{{ row.path }}</td>
           </tr>
         </tbody>

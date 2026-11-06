@@ -129,7 +129,8 @@ function statusClass(status: string): string {
     </div>
 
     <p class="footnote">
-      点击任意行可把它设为当前工作区（提交图 / 工作区页随之切换）。<br />
+      点击任意行可把它设为当前工作区（其他页面会跟随切换）。<br />
+      注意：这里的「文件 / 体积」只统计 <strong>git 跟踪</strong> 的内容；素材、模型等由「备份」页的资产快照管理（例如 video 项目 38 GB 素材不在此列）。<br />
     </p>
     <p class="footnote">
       数据源：<code>gitmove projects list --json</code> + <code>gitmove audit --all --json</code>。

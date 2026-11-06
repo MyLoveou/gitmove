@@ -33,6 +33,9 @@ export const useWorkspaceStore = defineStore('workspace', {
     revisions: [] as RevisionRow[],
     workspaceStatus: null as WorkspaceStatus | null,
     configToml: '' as string,
+    editableFiles: [] as { path: string; exists: boolean }[],
+    activeFile: '' as string,
+    fileText: '' as string,
     syncInfo: null as { ahead: number; behind: number; upstream: string | null; dirty: string[] } | null,
     loading: false,
     busy: false,
@@ -180,12 +183,75 @@ export const useWorkspaceStore = defineStore('workspace', {
         return false
       }
     },
+    async loadFiles() {
+      if (!this.currentWorkspace) return
+      try {
+        this.editableFiles = await invoke<{ path: string; exists: boolean }[]>({
+          op: 'file.list',
+          workspace: this.currentWorkspace
+        })
+        if (!this.activeFile && this.editableFiles.length) {
+          this.activeFile = this.editableFiles.find((file) => file.exists)?.path ?? this.editableFiles[0].path
+        }
+        await this.loadFile(this.activeFile)
+      } catch (error) {
+        this.error = (error as Error).message
+      }
+    },
+    async loadFile(path: string) {
+      if (!this.currentWorkspace || !path) return
+      this.activeFile = path
+      try {
+        const data = await invoke<{ text: string }>({ op: 'file.read', workspace: this.currentWorkspace, path })
+        this.fileText = data.text
+      } catch (error) {
+        this.error = (error as Error).message
+      }
+    },
+    async saveFile(path: string, text: string) {
+      if (!this.currentWorkspace) return false
+      try {
+        await invoke({ op: 'file.write', workspace: this.currentWorkspace, path, text })
+        this.notice = `已保存 ${path}（旧文件备份为 .bak）`
+        await this.loadFiles()
+        return true
+      } catch (error) {
+        this.error = (error as Error).message
+        return false
+      }
+    },
+    async importGitHistory() {
+      if (!this.currentWorkspace) return
+      this.busy = true
+      try {
+        const data = await invoke<{ imported: number }>({
+          op: 'rev.importGit',
+          workspace: this.currentWorkspace,
+          limit: 200
+        })
+        this.notice = data.imported ? `已从 git 历史导入 ${data.imported} 条修订` : '没有可导入的提交'
+        await this.refreshWorkspace()
+      } catch (error) {
+        this.error = (error as Error).message
+      } finally {
+        this.busy = false
+      }
+    },
     async rebuildIndex() {
       if (!this.currentWorkspace) return
       this.busy = true
       try {
         const data = await invoke<{ revisions: number }>({ op: 'rev.rebuild', workspace: this.currentWorkspace })
-        this.notice = `索引重建完成：${data.revisions} 条修订`
+        if (!data.revisions) {
+          const imported = await invoke<{ imported: number }>({
+            op: 'rev.importGit',
+            workspace: this.currentWorkspace,
+            limit: 200
+          })
+          this.notice = `没有 trailer 可重建；已从 git 历史导入 ${imported.imported} 条修订`
+        } else {
+          this.notice = `索引重建完成：${data.revisions} 条修订`
+        }
         await this.refreshWorkspace()
       } catch (error) {
         this.error = (error as Error).message

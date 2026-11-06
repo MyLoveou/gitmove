@@ -518,3 +518,41 @@ pub fn commit_paths(
         assets: Vec::new(),
     })
 }
+/// Import plain git history as revisions (commits without a Gitmove trailer).
+/// Ids continue after the existing maximum; commits already recorded are skipped.
+pub fn import_git(workspace: &Path, limit: u32) -> CoreResult<usize> {
+    let conn = connect(workspace)?;
+    let raw = git::run(
+        workspace,
+        &["log", "--reverse", "--format=%H%x1f%an%x1f%aI%x1f%s", "-n", &limit.to_string()],
+    )?;
+    let base: i64 = conn
+        .query_row("SELECT COALESCE(MAX(id), 0) FROM revision", [], |row| row.get(0))
+        .unwrap_or(0);
+    let mut count = 0;
+    let mut next = base;
+    for line in raw.lines() {
+        let mut parts = line.split('\u{1f}');
+        let sha = parts.next().unwrap_or_default().trim();
+        let author = parts.next().unwrap_or_default().trim();
+        let date = parts.next().unwrap_or_default().trim();
+        let subject = parts.next().unwrap_or_default().trim();
+        if sha.len() != 40 {
+            continue;
+        }
+        let existing: i64 = conn
+            .query_row("SELECT COUNT(*) FROM revision WHERE git_commit = ?1", params![sha], |row| row.get(0))
+            .unwrap_or(0);
+        if existing > 0 {
+            continue;
+        }
+        next += 1;
+        conn.execute(
+            "INSERT OR REPLACE INTO revision(id, status, git_commit, message, created_at, branch)
+             VALUES (?1, 'ok', ?2, ?3, ?4, ?5)",
+            params![next, sha, format!("{subject}\n\n（从 git 历史导入 · {author}）"), date, Option::<String>::None],
+        )?;
+        count += 1;
+    }
+    Ok(count)
+}

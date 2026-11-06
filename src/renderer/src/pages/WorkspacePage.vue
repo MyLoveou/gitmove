@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, watch, ref } from 'vue'
 
 import type { BranchRow } from '../../../shared/protocol'
 import { useWorkspaceStore } from '../stores/workspace'
@@ -35,6 +35,14 @@ function roleClass(role: string): string {
 }
 
 onMounted(load)
+
+watch(
+  () => store.currentWorkspace,
+  () => {
+    void store.refreshWorkspace()
+    void (typeof load === 'function' ? load() : Promise.resolve())
+  }
+)
 </script>
 
 <template>

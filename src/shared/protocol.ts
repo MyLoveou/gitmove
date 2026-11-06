@@ -191,6 +191,12 @@ export type Op =
   | { op: 'ws.switch'; workspace: string; name: string }
   | { op: 'sync.check'; workspace: string }
   | { op: 'sync.pull'; workspace: string; fetch?: boolean }
+  | { op: 'rev.importGit'; workspace: string; limit?: number }
+  | { op: 'file.list'; workspace: string }
+  | { op: 'file.read'; workspace: string; path: string }
+  | { op: 'file.write'; workspace: string; path: string; text: string }
+  | { op: 'open.logs' }
+  | { op: 'open.workspace'; workspace: string }
   | { op: 'changes.list'; workspace: string }
   | { op: 'changes.discard'; workspace: string; selections: { member: string; path: string }[] }
   | { op: 'rev.commitPaths'; workspace: string; message: string; selections: { member: string; path: string }[] }

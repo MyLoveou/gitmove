@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { BrowserWindow, Menu, app, ipcMain, shell } from 'electron'
 
 import { IPC_INVOKE, type Op } from '../shared/protocol'
+import { logDir, logEvent } from './logger'
 import { handleOp } from './operations'
 
 const isSmoke = process.argv.includes('--smoke')
@@ -16,6 +17,8 @@ function createWindow(): BrowserWindow {
     show: false,
     backgroundColor: '#0b1014',
     title: 'gitmove',
+    titleBarStyle: 'hidden',
+    titleBarOverlay: { color: '#0b1014', symbolColor: '#8aa0a8', height: 32 },
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
@@ -121,6 +124,7 @@ if (typeof app?.whenReady !== 'function') {
 }
 
 void app.whenReady().then(async () => {
+  logEvent('app.ready', { version: app.getVersion(), logs: logDir() })
   Menu.setApplicationMenu(null)
   ipcMain.handle(IPC_INVOKE, (_event, request: Op) => handleOp(request))
   if (isSmoke) {
