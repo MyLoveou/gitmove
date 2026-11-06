@@ -8,6 +8,7 @@ const props = defineProps<{ nodes: GraphNode[]; selected?: string }>()
 const emit = defineEmits<{ select: [sha: string] }>()
 
 const scale = ref(1)
+const hovered = ref('')
 
 const palette = ['#2fd7c4', '#7aa2f7', '#bb9af7', '#f7768e', '#e0af68', '#9ece6a', '#7dcfff', '#ff9e64']
 
@@ -41,6 +42,8 @@ interface NodePoint {
 
 interface EdgeLine {
   key: string
+  from: string
+  to: string
   d: string
   color: string
 }
@@ -79,6 +82,8 @@ const layout = computed(() => {
     const path = (data.points ?? []).map((point: { x: number; y: number }) => `${point.x},${point.y}`).join(' ')
     edges.push({
       key: `${edge.v}-${edge.w}`,
+      from: edge.v,
+      to: edge.w,
       d: path ? `M ${path.replace(/ /g, ' L ')}` : `M ${from.x},${from.y} L ${to.x},${to.y}`,
       color: colors.value.get(branchOf(bySha.get(edge.v)!)) ?? '#5c7078'
     })
@@ -91,6 +96,27 @@ const layout = computed(() => {
     edges
   }
 })
+
+const chain = computed(() => {
+  const start = hovered.value
+  if (!start) return new Set<string>()
+  const parents = new Map(props.nodes.map((node) => [node.sha, node.parents]))
+  const seen = new Set<string>()
+  let current: string | undefined = start
+  while (current && !seen.has(current)) {
+    seen.add(current)
+    current = parents.get(current)?.[0]
+  }
+  return seen
+})
+
+function dimNode(sha: string): boolean {
+  return Boolean(hovered.value) && !chain.value.has(sha)
+}
+
+function dimEdge(edge: EdgeLine): boolean {
+  return Boolean(hovered.value) && !(chain.value.has(edge.from) && chain.value.has(edge.to))
+}
 
 function zoom(delta: number) {
   scale.value = Math.min(2, Math.max(0.5, Number((scale.value + delta).toFixed(2))))
@@ -118,8 +144,8 @@ function zoom(delta: number) {
             :d="edge.d"
             fill="none"
             :stroke="edge.color"
-            stroke-opacity="0.55"
-            stroke-width="1.6"
+            :stroke-opacity="dimEdge(edge) ? 0.08 : 0.6"
+            :stroke-width="dimEdge(edge) ? 1 : 1.8"
           />
         </g>
         <g v-for="point in layout.points" :key="point.node.sha">
@@ -131,13 +157,19 @@ function zoom(delta: number) {
             :stroke="props.selected === point.node.sha ? '#ffffff' : 'transparent'"
             stroke-width="2"
             class="graph-node"
+            :opacity="dimNode(point.node.sha) ? 0.2 : 1"
             @click="emit('select', point.node.sha)"
+            @mouseenter="hovered = point.node.sha"
+            @mouseleave="hovered = ''"
           />
           <text
             :x="point.x + 12"
             :y="point.y + 4"
             class="graph-text"
+            :opacity="dimNode(point.node.sha) ? 0.25 : 1"
             @click="emit('select', point.node.sha)"
+            @mouseenter="hovered = point.node.sha"
+            @mouseleave="hovered = ''"
           >
             {{ point.node.short }} · {{ point.node.subject.slice(0, 60) }}
             <tspan v-for="ref in point.node.refs" :key="ref" class="graph-ref"> [{{ ref }}]</tspan>

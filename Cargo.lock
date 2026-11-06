@@ -229,7 +229,7 @@ dependencies = [
 
 [[package]]
 name = "gitmove-cli"
-version = "0.9.3"
+version = "0.9.4"
 dependencies = [
  "clap",
  "gitmove-core",
@@ -239,7 +239,7 @@ dependencies = [
 
 [[package]]
 name = "gitmove-core"
-version = "0.9.3"
+version = "0.9.4"
 dependencies = [
  "anyhow",
  "chrono",

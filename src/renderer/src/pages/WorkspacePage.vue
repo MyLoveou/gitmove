@@ -8,12 +8,89 @@ const store = useWorkspaceStore()
 const status = computed(() => store.workspaceStatus)
 const branches = ref<BranchRow[]>([])
 const target = ref('')
+const newMember = ref({ name: '', path: '', role: 'editable', strategy: 'vendor', source: '', pin: '' })
+const memberNotice = ref('')
 const busy = ref(false)
 
 async function invoke<T>(request: Parameters<Window['gitmove']['invoke']>[0]): Promise<T> {
   const result = (await window.gitmove.invoke(request)) as { ok: boolean; data?: T; error?: { message: string } }
   if (!result.ok) throw new Error(result.error?.message ?? '失败')
   return result.data as T
+}
+
+async function readWorkspaceToml(): Promise<string> {
+  const result = (await window.gitmove.invoke({
+    op: 'file.read',
+    workspace: store.currentWorkspace,
+    path: 'workspace.toml'
+  })) as { ok: boolean; data?: { text: string } }
+  if (!result.ok || !result.data) return ''
+  return result.data.text
+}
+
+async function writeWorkspaceToml(text: string) {
+  const result = (await window.gitmove.invoke({
+    op: 'file.write',
+    workspace: store.currentWorkspace,
+    path: 'workspace.toml',
+    text
+  })) as { ok: boolean; error?: { message: string } }
+  if (!result.ok) throw new Error(result.error?.message ?? '写入失败')
+}
+
+async function addMember() {
+  const member = newMember.value
+  if (!member.name.trim() || !member.path.trim()) {
+    memberNotice.value = '成员名和路径必填'
+    return
+  }
+  busy.value = true
+  memberNotice.value = ''
+  try {
+    const current = await readWorkspaceToml()
+    const block = [
+      '',
+      '[[member]]',
+      `name = "${member.name.trim()}"`,
+      `path = "${member.path.trim().replace(/\\/g, '/')}"`,
+      `role = "${member.role}"`,
+      `strategy = "${member.strategy}"`,
+      member.source.trim() ? `source = "${member.source.trim()}"` : '',
+      member.pin.trim() ? `pin = "${member.pin.trim()}"` : '',
+      ''
+    ].filter((line) => line !== '').join('\n') + '\n'
+    await writeWorkspaceToml(current.trimEnd() + '\n' + block)
+    memberNotice.value = `已添加成员 ${member.name}`
+    newMember.value = { name: '', path: '', role: 'editable', strategy: 'vendor', source: '', pin: '' }
+    await store.refreshWorkspace()
+    await load()
+  } catch (error) {
+    memberNotice.value = (error as Error).message
+  } finally {
+    busy.value = false
+  }
+}
+
+async function removeMember(name: string) {
+  if (!window.confirm(`从 workspace.toml 移除成员 ${name}？（不会删除磁盘上的仓库）`)) return
+  busy.value = true
+  try {
+    const current = await readWorkspaceToml()
+    const blocks = current.split(/(?=\[\[member\]\])/)
+    const kept = blocks.filter((block) => {
+      if (!block.startsWith('[[member]]')) return true
+      const match = block.match(/name\s*=\s*"([^"]*)"/)
+      return !(match && match[1] === name)
+    })
+    await writeWorkspaceToml(kept.join(''))
+    memberNotice.value = `已移除成员 ${name}（仓库目录保留）`
+    await store.refreshWorkspace()
+    await load()
+  } catch (error) {
+    memberNotice.value = (error as Error).message
+  } finally {
+    busy.value = false
+  }
 }
 
 async function load() {
@@ -75,7 +152,7 @@ watch(() => store.currentWorkspace, () => {
 
       <div class="panel">
         <table class="table">
-          <thead><tr><th>成员</th><th>角色</th><th>策略</th><th>HEAD</th><th>PIN</th><th>状态</th><th>路径</th></tr></thead>
+          <thead><tr><th>成员</th><th>角色</th><th>策略</th><th>HEAD</th><th>PIN</th><th>状态</th><th>路径</th><th></th></tr></thead>
           <tbody>
             <tr v-for="member in status.members" :key="member.name">
               <td class="mono strong">{{ member.name }}</td>
@@ -89,9 +166,40 @@ watch(() => store.currentWorkspace, () => {
                 <span v-else class="badge ok">clean</span>
               </td>
               <td class="mono dim path">{{ member.path }}</td>
+              <td><button class="btn tiny" :disabled="busy" @click="removeMember(member.name)">移除</button></td>
             </tr>
           </tbody>
         </table>
+      </div>
+
+      <div v-if="memberNotice" class="banner ok">{{ memberNotice }}</div>
+
+      <div class="panel pad">
+        <div class="panel-title"><strong>添加成员</strong><span class="muted">写入 workspace.toml 的 [[member]]</span></div>
+        <div class="form-row">
+          <label class="field"><span>成员名</span><input v-model="newMember.name" class="input" placeholder="spec" /></label>
+          <label class="field"><span>路径（相对工作区）</span><input v-model="newMember.path" class="input" placeholder="spec" /></label>
+          <label class="field"><span>角色</span>
+            <select v-model="newMember.role" class="input">
+              <option value="editable">editable（可改可回推）</option>
+              <option value="readonly">readonly（只读钉版本）</option>
+              <option value="local">local（本地，仅备份）</option>
+              <option value="main">main（主仓）</option>
+            </select>
+          </label>
+          <label class="field"><span>策略</span>
+            <select v-model="newMember.strategy" class="input">
+              <option value="vendor">vendor（缓存+junction）</option>
+              <option value="clone">clone（嵌套真仓）</option>
+              <option value="link">link（外部目录）</option>
+            </select>
+          </label>
+        </div>
+        <div class="form-row" style="margin-top: 8px">
+          <label class="field" style="min-width: 320px"><span>来源（可选）</span><input v-model="newMember.source" class="input" placeholder="git@github.com:you/spec.git" /></label>
+          <label class="field"><span>pin（可选）</span><input v-model="newMember.pin" class="input" placeholder="v0.5.0 / commit" /></label>
+          <button class="btn primary" :disabled="busy" @click="addMember">添加成员</button>
+        </div>
       </div>
 
       <div class="panel pad">
