@@ -53,7 +53,7 @@ const layout = computed(() => {
   if (!nodes.length) return { width: 0, height: 0, points: [] as NodePoint[], edges: [] as EdgeLine[] }
 
   const graph = new dagre.graphlib.Graph({ multigraph: false, compound: false })
-  graph.setGraph({ rankdir: 'TB', nodesep: 16, ranksep: 34, marginx: 24, marginy: 24 })
+  graph.setGraph({ rankdir: 'TB', nodesep: 42, ranksep: 44, marginx: 30, marginy: 24 })
   graph.setDefaultEdgeLabel(() => ({}))
 
   const known = new Set(nodes.map((node) => node.sha))
@@ -152,7 +152,7 @@ function zoom(delta: number) {
           <circle
             :cx="point.x"
             :cy="point.y"
-            :r="props.selected === point.node.sha ? 7 : 5"
+            :r="props.selected === point.node.sha ? 7 : 4.5"
             :fill="colorOf(point.node)"
             :stroke="props.selected === point.node.sha ? '#ffffff' : 'transparent'"
             stroke-width="2"
@@ -163,16 +163,17 @@ function zoom(delta: number) {
             @mouseleave="hovered = ''"
           />
           <text
-            :x="point.x + 12"
-            :y="point.y + 4"
+            :x="point.x"
+            :y="point.y + 18"
+            text-anchor="middle"
             class="graph-text"
             :opacity="dimNode(point.node.sha) ? 0.25 : 1"
             @click="emit('select', point.node.sha)"
             @mouseenter="hovered = point.node.sha"
             @mouseleave="hovered = ''"
           >
-            {{ point.node.short }} · {{ point.node.subject.slice(0, 60) }}
-            <tspan v-for="ref in point.node.refs" :key="ref" class="graph-ref"> [{{ ref }}]</tspan>
+            {{ point.node.short }}
+            <title>{{ point.node.refs.join(' ') }} · {{ point.node.subject }}</title>
           </text>
         </g>
       </svg>
