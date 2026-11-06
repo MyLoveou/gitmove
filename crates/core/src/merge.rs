@@ -139,7 +139,11 @@ fn dump_hash(repo: &str, password: &Option<(String, String)>, snapshot: &str, pa
             command.arg("--password-file").arg(value);
         }
     }
-    let output = command.args(["dump", snapshot, path]).output().ok()?;
+    let clean = path.trim_start_matches('/');
+    let output = command
+        .args(["dump", snapshot, &format!("/{clean}")])
+        .output()
+        .ok()?;
     if !output.status.success() {
         return None;
     }
@@ -213,11 +217,15 @@ pub fn plan(root: &Path, target: &str, base: &str, ours: &str, theirs: &str) -> 
 
         let mut action: Option<&str> = None;
         let mut from_theirs = false;
+        let mut from_ours = false;
         let mut remove = false;
         let mut conflict: Option<MergeConflict> = None;
 
         match (&b, &o, &t) {
-            (None, Some(_), None) => action = Some("keep_ours"),
+            (None, Some(_), None) => {
+                action = Some("keep_ours");
+                from_ours = true;
+            }
             (None, None, Some(_)) => {
                 action = Some("take_theirs");
                 from_theirs = true;
@@ -266,6 +274,7 @@ pub fn plan(root: &Path, target: &str, base: &str, ours: &str, theirs: &str) -> 
             (Some(_), Some(_), Some(c)) => {
                 if ours_changed && !theirs_changed {
                     action = Some("keep_ours");
+                    from_ours = true;
                 } else if !ours_changed && theirs_changed {
                     action = Some("take_theirs");
                     from_theirs = true;
@@ -290,6 +299,9 @@ pub fn plan(root: &Path, target: &str, base: &str, ours: &str, theirs: &str) -> 
         }
         if from_theirs {
             result.apply_from_theirs.push(path.clone());
+        }
+        if from_ours {
+            result.apply_from_ours.push(path.clone());
         }
         if remove {
             result.delete.push(path.clone());
@@ -348,6 +360,7 @@ pub fn apply(root: &Path, target: &str, plan: &MergePlan, force: bool) -> CoreRe
         Ok(())
     };
 
+    restore_from(&plan.ours, &plan.apply_from_ours)?;
     restore_from(&plan.theirs, &plan.apply_from_theirs)?;
     for path in &plan.delete {
         let file = root.join(path);
