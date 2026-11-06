@@ -9,6 +9,7 @@ import type {
   AssetTargetResult,
   AuditRow,
   BranchRefs,
+  HookStatusPayload,
   MergeStatePayload,
   GraphNode,
   BranchRow,
@@ -220,6 +221,26 @@ export async function handleOp(request: Op): Promise<OpResult> {
       case 'ws.contribute': {
         requireCore()
         const data = await call<unknown>(['-C', request.workspace, 'ws', 'contribute', request.member])
+        return { ok: true, data }
+      }
+      case 'hook.status': {
+        requireCore()
+        const data = await call<HookStatusPayload>(['-C', request.workspace, 'hook', 'status'])
+        return { ok: true, data }
+      }
+      case 'hook.install': {
+        requireCore()
+        const data = await call<HookStatusPayload>(['-C', request.workspace, 'hook', 'install'])
+        return { ok: true, data }
+      }
+      case 'hook.uninstall': {
+        requireCore()
+        const data = await call<HookStatusPayload>(['-C', request.workspace, 'hook', 'uninstall'])
+        return { ok: true, data }
+      }
+      case 'hook.run': {
+        requireCore()
+        const data = await call<unknown[]>(['-C', request.workspace, 'hook', 'run', request.event])
         return { ok: true, data }
       }
       case 'asset.test': {

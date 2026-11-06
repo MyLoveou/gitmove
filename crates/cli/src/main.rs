@@ -143,6 +143,26 @@ enum RevAction {
 }
 
 #[derive(Subcommand)]
+enum HookAction {
+    Status,
+    Install,
+    Uninstall,
+    Run {
+        event: String,
+        #[arg(long)]
+        no_block: bool,
+    },
+    Add {
+        #[arg(long)]
+        event: String,
+        #[arg(long)]
+        command: String,
+        #[arg(long)]
+        advisory: bool,
+    },
+}
+
+#[derive(Subcommand)]
 enum WsAction {
     Status,
     #[command(name = "branch-list")]

@@ -12,6 +12,7 @@ pub mod deps;
 pub mod error;
 pub mod git;
 pub mod json;
+pub mod hooks;
 pub mod merge;
 pub mod misc;
 pub mod paths;

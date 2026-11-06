@@ -125,6 +125,12 @@ export interface BranchRow {
   branch: string
 }
 
+export interface HookStatusPayload {
+  config: string
+  hooks: { event: string; command: string; blocking: boolean }[]
+  installed: string[]
+}
+
 export interface MergeStatePayload {
   target: string
   base: string
@@ -224,6 +230,10 @@ export type Op =
   | { op: 'asset.state'; workspace: string }
   | { op: 'asset.resolve'; workspace: string; path: string; take: string }
   | { op: 'asset.continue'; workspace: string }
+  | { op: 'hook.status'; workspace: string }
+  | { op: 'hook.install'; workspace: string }
+  | { op: 'hook.uninstall'; workspace: string }
+  | { op: 'hook.run'; workspace: string; event: string }
   | { op: 'graph'; workspace: string; limit?: number; branch?: string; all?: boolean }
   | { op: 'logs.read'; lines?: number }
   | { op: 'rev.importGit'; workspace: string; limit?: number }

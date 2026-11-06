@@ -1,12 +1,48 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 
+import type { HookStatusPayload } from '../../../shared/protocol'
 import { useWorkspaceStore } from '../stores/workspace'
 
 const store = useWorkspaceStore()
 const info = computed(() => store.info)
 const preview = ref<{ type: string; text: string }[] | null>(null)
 const savedText = ref('')
+const hookStatus = ref<HookStatusPayload | null>(null)
+const hookNotice = ref('')
+
+async function callOp<T>(request: Parameters<Window['gitmove']['invoke']>[0]): Promise<T> {
+  const result = (await window.gitmove.invoke(request)) as { ok: boolean; data?: T; error?: { message: string } }
+  if (!result.ok) throw new Error(result.error?.message ?? '失败')
+  return result.data as T
+}
+
+async function loadHooks() {
+  if (!store.currentWorkspace) return
+  try {
+    hookStatus.value = await callOp<HookStatusPayload>({ op: 'hook.status', workspace: store.currentWorkspace })
+  } catch (error) {
+    hookNotice.value = (error as Error).message
+  }
+}
+
+async function installHooks() {
+  try {
+    hookStatus.value = await callOp<HookStatusPayload>({ op: 'hook.install', workspace: store.currentWorkspace })
+    hookNotice.value = '已安装 pre-commit / pre-push 回调'
+  } catch (error) {
+    hookNotice.value = (error as Error).message
+  }
+}
+
+async function uninstallHooks() {
+  try {
+    hookStatus.value = await callOp<HookStatusPayload>({ op: 'hook.uninstall', workspace: store.currentWorkspace })
+    hookNotice.value = '已移除 gitmove 钩子块'
+  } catch (error) {
+    hookNotice.value = (error as Error).message
+  }
+}
 
 type DiffLine = { type: string; text: string }
 
@@ -81,6 +117,7 @@ const lineNumbers = computed(() => store.fileText.split(/\r?\n/).map((_, index) 
 onMounted(async () => {
   await store.loadFiles()
   savedText.value = store.fileText
+  await loadHooks()
 })
 
 watch(
@@ -174,6 +211,26 @@ watch(
         <button class="btn ghost" @click="openLogs">打开日志目录</button>
       </div>
       <pre class="graph-pre">{{ store.logText || '点击「刷新日志」读取 %APPDATA%\\gitmove\\logs\\main.log' }}</pre>
+    </div>
+
+    <div class="panel pad">
+      <div class="panel-title">
+        <strong>Git Hooks</strong>
+        <span class="muted">安装后提交/推送时回调 gitmove（命令定义在 hooks.toml）</span>
+      </div>
+      <div v-if="hookNotice" class="banner ok">{{ hookNotice }}</div>
+      <div class="form-row">
+        <button class="btn ghost" @click="loadHooks()">刷新</button>
+        <button class="btn" @click="installHooks()">安装钩子</button>
+        <button class="btn ghost" @click="uninstallHooks()">移除钩子</button>
+      </div>
+      <div class="kv"><span class="muted">已安装</span><span class="mono">{{ hookStatus?.installed.join(', ') || '—' }}</span></div>
+      <div class="kv"><span class="muted">配置文件</span><span class="mono">{{ hookStatus?.config || '—' }}</span></div>
+      <div v-for="hook in hookStatus?.hooks ?? []" :key="hook.event + hook.command" class="kv">
+        <span class="mono">{{ hook.event }}{{ hook.blocking ? '' : ' (advisory)' }}</span>
+        <span class="mono dim">{{ hook.command }}</span>
+      </div>
+      <p class="hint">在 <code>.gitmove/hooks.toml</code> 里写 <code>[[hook]] event/command/blocking</code>，或用 <code>gitmove hook add --event pre-commit --command "npm test"</code>。</p>
     </div>
 
     <div class="panel pad">
