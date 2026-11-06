@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 
 import type { AuditRow } from '../../../shared/protocol'
 import { useWorkspaceStore } from '../stores/workspace'
@@ -38,6 +38,34 @@ function statusClass(status: string): string {
   if (status === 'MISSING' || status === 'NOT_GIT') return 'bad'
   return 'warn'
 }
+
+const projectNote = ref('')
+
+async function loadNote() {
+  projectNote.value = ''
+  if (!store.currentWorkspace) return
+  try {
+    const result = (await window.gitmove.invoke({
+      op: 'file.read',
+      workspace: store.currentWorkspace,
+      path: '.gitmove/config.toml'
+    })) as { ok: boolean; data?: { text: string } }
+    if (result.ok && result.data) {
+      const match = result.data.text.match(/^\s*note\s*=\s*"([^"]*)"/m)
+      if (match) projectNote.value = match[1]
+    }
+  } catch {
+    projectNote.value = ''
+  }
+}
+
+watch(() => store.currentWorkspace, () => {
+  void loadNote()
+})
+
+onMounted(() => {
+  void loadNote()
+})
 </script>
 
 <template>
@@ -54,6 +82,7 @@ function statusClass(status: string): string {
       </div>
     </header>
 
+    <div v-if="projectNote" class="banner info">{{ projectNote }}</div>
     <div v-if="store.error" class="banner bad">
       <strong>读取失败</strong>
       <span>{{ store.error }}</span>
@@ -130,7 +159,6 @@ function statusClass(status: string): string {
 
     <p class="footnote">
       点击任意行可把它设为当前工作区（其他页面会跟随切换）。<br />
-      注意：这里的「文件 / 体积」只统计 <strong>git 跟踪</strong> 的内容；素材、模型等由「备份」页的资产快照管理（例如 video 项目 38 GB 素材不在此列）。<br />
     </p>
     <p class="footnote">
       数据源：<code>gitmove projects list --json</code> + <code>gitmove audit --all --json</code>。

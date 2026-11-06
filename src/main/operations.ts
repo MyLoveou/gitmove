@@ -8,6 +8,7 @@ import type {
   AssetStatusPayload,
   AssetTargetResult,
   AuditRow,
+  BranchRefs,
   BranchRow,
   ChangeRow,
   DepRow,
@@ -19,7 +20,7 @@ import type {
   RevisionRow,
   WorkspaceStatus
 } from '../shared/protocol'
-import { logDir, logEvent } from './logger'
+import { logDir, logEvent, logFile } from './logger'
 import { coreBinary, engineName, runCli, sidecarDescription } from './sidecar'
 
 export interface OpResult<T = unknown> {
@@ -187,10 +188,32 @@ export async function handleOp(request: Op): Promise<OpResult> {
         const data = await call<SyncCheck>(['-C', request.workspace, 'sync', 'check'])
         return { ok: true, data }
       }
+      case 'ws.refs': {
+        requireCore()
+        const data = await call<BranchRefs>(['-C', request.workspace, 'ws', 'refs'])
+        return { ok: true, data }
+      }
+      case 'graph': {
+        requireCore()
+        const argv = ['-C', request.workspace, 'graph', '--limit', String(request.limit ?? 60)]
+        if (request.branch) argv.push('--branch', request.branch)
+        else argv.push('--all')
+        const data = await call<string[]>(argv)
+        return { ok: true, data }
+      }
+      case 'logs.read': {
+        const path = logFile()
+        const text = existsSync(path) ? readFileSync(path, 'utf8') : ''
+        const lines = text.split(/\r?\n/).filter(Boolean)
+        const tail = lines.slice(-(request.lines ?? 200)).join('\n')
+        return { ok: true, data: { path, text: tail, total: lines.length } }
+      }
       case 'sync.pull': {
         requireCore()
         const argv = ['-C', request.workspace, 'sync', 'pull']
         if (request.fetch) argv.push('--fetch')
+        if (request.mode === 'merge') argv.push('--merge')
+        if (request.mode === 'rebase') argv.push('--rebase')
         const data = await call<unknown>(argv)
         return { ok: true, data }
       }

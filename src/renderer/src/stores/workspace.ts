@@ -36,6 +36,9 @@ export const useWorkspaceStore = defineStore('workspace', {
     editableFiles: [] as { path: string; exists: boolean }[],
     activeFile: '' as string,
     fileText: '' as string,
+    branchRefs: { local: [] as string[], remote: [] as string[] },
+    graphLines: [] as string[],
+    logText: '',
     syncInfo: null as { ahead: number; behind: number; upstream: string | null; dirty: string[] } | null,
     loading: false,
     busy: false,
@@ -83,7 +86,58 @@ export const useWorkspaceStore = defineStore('workspace', {
     },
     async setWorkspace(path: string) {
       this.currentWorkspace = path
+      this.notice = null
+      this.error = null
+      this.syncInfo = null
+      this.graphLines = []
       await this.refreshWorkspace()
+      await this.loadRefs()
+      await this.loadGraph()
+    },
+    async loadRefs() {
+      if (!this.currentWorkspace) return
+      try {
+        this.branchRefs = await invoke<{ local: string[]; remote: string[] }>({
+          op: 'ws.refs',
+          workspace: this.currentWorkspace
+        })
+      } catch (error) {
+        this.error = (error as Error).message
+      }
+    },
+    async loadGraph(branch?: string) {
+      if (!this.currentWorkspace) return
+      try {
+        this.graphLines = await invoke<string[]>({
+          op: 'graph',
+          workspace: this.currentWorkspace,
+          limit: 80,
+          branch
+        })
+      } catch (error) {
+        this.error = (error as Error).message
+      }
+    },
+    async loadLogs(lines = 200) {
+      try {
+        const data = await invoke<{ text: string; total: number }>({ op: 'logs.read', lines })
+        this.logText = data.text
+      } catch (error) {
+        this.error = (error as Error).message
+      }
+    },
+    async pull(mode?: 'merge' | 'rebase') {
+      if (!this.currentWorkspace) return
+      this.busy = true
+      try {
+        await invoke({ op: 'sync.pull', workspace: this.currentWorkspace, fetch: true, mode })
+        this.notice = mode ? `已${mode === 'merge' ? '合并' : '变基'}拉取` : '已快进拉取'
+        await this.refreshWorkspace()
+      } catch (error) {
+        this.error = (error as Error).message
+      } finally {
+        this.busy = false
+      }
     },
     async refreshWorkspace() {
       if (!this.currentWorkspace) return
@@ -112,6 +166,7 @@ export const useWorkspaceStore = defineStore('workspace', {
         this.notice = `已回滚到修订 ${id}`
         await this.refreshWorkspace()
         await this.refreshProjects()
+        await this.loadGraph()
       } catch (error) {
         const err = error as Error & { code?: string }
         if (!force && /dirty/i.test(err.message)) {

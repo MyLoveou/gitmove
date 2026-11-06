@@ -30,7 +30,19 @@ pub fn check(root: &Path) -> CoreResult<SyncCheck> {
 
 /// Fast-forward pull; refuses when skip-worktree files are locally modified
 /// (pulling would overwrite work the user explicitly froze).
-pub fn pull(root: &Path, fetch: bool) -> CoreResult<serde_json::Value> {
+/// `git log --graph --decorate` for the whole repo (or one branch).
+pub fn graph(root: &Path, limit: u32, branch: Option<&str>) -> CoreResult<Vec<String>> {
+    let limit_arg = format!("-n{limit}");
+    let mut args: Vec<&str> = vec!["log", "--graph", "--decorate", "--oneline", "--date-order", &limit_arg];
+    match branch {
+        Some(name) if !name.is_empty() => args.push(name),
+        _ => args.push("--all"),
+    }
+    let raw = git::run(root, &args)?;
+    Ok(raw.lines().map(|line| line.to_string()).collect())
+}
+
+pub fn pull(root: &Path, fetch: bool, mode: Option<&str>) -> CoreResult<serde_json::Value> {
     if fetch {
         let _ = git::run_allow_fail(root, &["fetch", "--all", "--prune"]);
     }
@@ -54,7 +66,21 @@ pub fn pull(root: &Path, fetch: bool) -> CoreResult<serde_json::Value> {
         )
         .with_steps(vec!["先提交或暂存这些文件，或 gitmove skip remove 取消冻结".to_string()]));
     }
-    let output = git::run(root, &["pull", "--ff-only"])?;
+    let output = match mode {
+        Some("merge") => git::run(root, &["pull", "--no-rebase"])?,
+        Some("rebase") => git::run(root, &["pull", "--rebase"])?,
+        _ => git::run(root, &["pull", "--ff-only"]).map_err(|err| {
+            CoreError::new(
+                "SYNC_DIVERGED",
+                "本地与远端已分叉，无法快进；请选择合并或变基",
+            )
+            .with_steps(vec![
+                "合并远端: gitmove sync pull --merge".to_string(),
+                "变基到远端: gitmove sync pull --rebase".to_string(),
+                format!("原始输出: {}", err.message),
+            ])
+        })?,
+    };
     let after = check(root)?;
     Ok(serde_json::json!({
         "pulled": true,

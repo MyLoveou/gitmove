@@ -5,6 +5,7 @@ import { useWorkspaceStore } from '../stores/workspace'
 
 const store = useWorkspaceStore()
 const message = ref('')
+const graphBranch = ref('')
 const includeMembers = ref(false)
 
 const rows = computed(() => [...store.revisions].sort((a, b) => b.id - a.id))
@@ -31,6 +32,8 @@ watch(
   () => store.currentWorkspace,
   () => {
     void store.refreshWorkspace()
+    void store.loadRefs()
+    void store.loadGraph()
   }
 )
 </script>
@@ -56,6 +59,26 @@ watch(
     </div>
     <div v-if="store.notice" class="banner ok">{{ store.notice }}</div>
     <div v-if="store.error" class="banner bad">{{ store.error }}</div>
+
+    <div class="panel pad">
+      <div class="panel-title">
+        <strong>git 图</strong>
+        <span class="muted">分支切出/合并在图上可见；选中分支可只看该分支</span>
+      </div>
+      <div class="form-row">
+        <label class="field">
+          <span>分支</span>
+          <select v-model="graphBranch" class="input" @change="store.loadGraph(graphBranch || undefined)">
+            <option value="">全部分支</option>
+            <option v-for="name in store.branchRefs.local" :key="'l' + name" :value="name">{{ name }}</option>
+            <option v-for="name in store.branchRefs.remote" :key="'r' + name" :value="name">{{ name }}</option>
+          </select>
+        </label>
+        <button class="btn ghost" @click="store.loadGraph(graphBranch || undefined)">刷新图</button>
+        <button class="btn" :disabled="!graphBranch" @click="store.switchBranch(graphBranch)">切换到该分支</button>
+      </div>
+      <pre class="graph-pre">{{ store.graphLines.join('\n') || '（暂无提交）' }}</pre>
+    </div>
 
     <div class="panel commit-box">
       <div class="commit-row">

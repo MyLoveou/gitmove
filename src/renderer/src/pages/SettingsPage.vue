@@ -168,6 +168,15 @@ watch(
     </div>
 
     <div class="panel pad">
+      <div class="panel-title">
+        <strong>日志</strong>
+        <button class="btn ghost" @click="store.loadLogs()">刷新日志</button>
+        <button class="btn ghost" @click="openLogs">打开日志目录</button>
+      </div>
+      <pre class="graph-pre">{{ store.logText || '点击「刷新日志」读取 %APPDATA%\\gitmove\\logs\\main.log' }}</pre>
+    </div>
+
+    <div class="panel pad">
       <div class="panel-title"><strong>运行时</strong></div>
       <table class="table">
         <tbody>

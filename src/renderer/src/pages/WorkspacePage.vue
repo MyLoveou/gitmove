@@ -34,8 +34,15 @@ function roleClass(role: string): string {
   return ''
 }
 
-onMounted(load)
-watch(() => store.currentWorkspace, () => { void load(); void store.refreshWorkspace() })
+onMounted(() => {
+  void load()
+  void store.loadRefs()
+})
+watch(() => store.currentWorkspace, () => {
+  void load()
+  void store.loadRefs()
+  void store.refreshWorkspace()
+})
 </script>
 
 <template>
@@ -100,7 +107,9 @@ watch(() => store.currentWorkspace, () => { void load(); void store.refreshWorks
           <button class="btn" :disabled="busy || !target" @click="store.switchBranch(target)">切换</button>
           <button class="btn ghost" :disabled="busy" @click="load">刷新分支</button>
           <button class="btn ghost" :disabled="store.busy" @click="store.syncCheck()">同步检查</button>
-          <button class="btn ghost" :disabled="store.busy" @click="store.syncPull()">快进拉取</button>
+          <button class="btn ghost" :disabled="store.busy" @click="store.pull()">快进拉取</button>
+          <button class="btn ghost" :disabled="store.busy" @click="store.pull('merge')">合并拉取</button>
+          <button class="btn ghost" :disabled="store.busy" @click="store.pull('rebase')">变基拉取</button>
         </div>
 
         <div class="split">

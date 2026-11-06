@@ -125,6 +125,11 @@ export interface BranchRow {
   branch: string
 }
 
+export interface BranchRefs {
+  local: string[]
+  remote: string[]
+}
+
 export interface SyncCheck {
   dirty: string[]
   ahead: number
@@ -190,7 +195,10 @@ export type Op =
   | { op: 'ws.branches'; workspace: string }
   | { op: 'ws.switch'; workspace: string; name: string }
   | { op: 'sync.check'; workspace: string }
-  | { op: 'sync.pull'; workspace: string; fetch?: boolean }
+  | { op: 'sync.pull'; workspace: string; fetch?: boolean; mode?: 'merge' | 'rebase' }
+  | { op: 'ws.refs'; workspace: string }
+  | { op: 'graph'; workspace: string; limit?: number; branch?: string }
+  | { op: 'logs.read'; lines?: number }
   | { op: 'rev.importGit'; workspace: string; limit?: number }
   | { op: 'file.list'; workspace: string }
   | { op: 'file.read'; workspace: string; path: string }

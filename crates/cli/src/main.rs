@@ -85,6 +85,15 @@ enum Command {
         #[arg(long = "path")]
         paths: Vec<String>,
     },
+    /// Commit graph (git log --graph).
+    Graph {
+        #[arg(long, default_value_t = 80)]
+        limit: u32,
+        #[arg(long)]
+        branch: Option<String>,
+        #[arg(long)]
+        all: bool,
+    },
     /// Sync check / fast-forward pull.
     Sync {
         #[command(subcommand)]
@@ -141,6 +150,7 @@ enum WsAction {
     #[command(name = "branch-switch")]
     BranchSwitch { name: String },
     Merge { branch: String },
+    Refs,
     Diff {
         member: String,
     },
@@ -274,6 +284,10 @@ enum SyncAction {
     Pull {
         #[arg(long)]
         fetch: bool,
+        #[arg(long)]
+        merge: bool,
+        #[arg(long)]
+        rebase: bool,
     },
 }
 
@@ -399,6 +413,7 @@ fn run(cli: &Cli, root: &Path) -> Result<Envelope<serde_json::Value>, CoreError>
             WsAction::Merge { branch } => {
                 Ok(success("gitmove_ws_merge", gitmove_core::workspace::merge(root, branch)?))
             }
+            WsAction::Refs => Ok(success("gitmove_ws_refs", gitmove_core::workspace::refs(root)?)),
             WsAction::Diff { member } => Ok(success("gitmove_ws_diff", gitmove_core::contribute::diff(root, member)?)),
             WsAction::Contribute { member, branch, no_push } => Ok(success(
                 "gitmove_ws_contribute",
@@ -479,9 +494,16 @@ fn run(cli: &Cli, root: &Path) -> Result<Envelope<serde_json::Value>, CoreError>
                 gitmove_core::asset::restore(root, snapshot, target.as_deref())?,
             )),
         },
+        Command::Graph { limit, branch, all } => {
+            let branch = if *all { None } else { branch.clone() };
+            Ok(success("gitmove_graph", gitmove_core::misc::graph(root, *limit, branch.as_deref())?))
+        }
         Command::Sync { action } => match action {
             SyncAction::Check => Ok(success("gitmove_sync_check", gitmove_core::misc::check(root)?)),
-            SyncAction::Pull { fetch } => Ok(success("gitmove_sync_pull", gitmove_core::misc::pull(root, *fetch)?)),
+            SyncAction::Pull { fetch, merge, rebase } => {
+                let mode = if *merge { Some("merge") } else if *rebase { Some("rebase") } else { None };
+                Ok(success("gitmove_sync_pull", gitmove_core::misc::pull(root, *fetch, mode)?))
+            }
         },
         Command::Exclude { action } => match action {
             ExcludeAction::PresetList => Ok(success(

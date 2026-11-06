@@ -321,3 +321,42 @@ pub fn merge(root: &Path, name: &str) -> CoreResult<MergeOutcome> {
     };
     Ok(MergeOutcome { branch: name.to_string(), merged, conflicts, message })
 }
+
+
+#[derive(Debug, Clone, Serialize)]
+pub struct Refs {
+    pub local: Vec<String>,
+    pub remote: Vec<String>,
+}
+
+/// Local and remote branch names (union of all members), for the branch picker.
+pub fn refs(root: &Path) -> CoreResult<Refs> {
+    let mut local = std::collections::BTreeSet::new();
+    let mut remote = std::collections::BTreeSet::new();
+    let (_, members, _) = load(root)?;
+    for member in members {
+        if !member.path.exists() || !git::is_repo(&member.path) {
+            continue;
+        }
+        if let Some(out) = git::run_allow_fail(
+            &member.path,
+            &["for-each-ref", "--format=%(refname:short)", "refs/heads", "refs/remotes"],
+        ) {
+            for line in out.lines() {
+                let name = line.trim();
+                if name.is_empty() || name.ends_with("/HEAD") {
+                    continue;
+                }
+                if name.starts_with("origin/") {
+                    remote.insert(name.trim_start_matches("origin/").to_string());
+                } else {
+                    local.insert(name.to_string());
+                }
+            }
+        }
+    }
+    Ok(Refs {
+        local: local.into_iter().collect(),
+        remote: remote.into_iter().collect(),
+    })
+}
