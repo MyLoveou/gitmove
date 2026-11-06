@@ -10,6 +10,10 @@ const results = ref<{ target: string; ok: boolean; snapshot_id: string | null; f
 const busy = ref(false)
 const message = ref('')
 
+const newName = ref('drive-a')
+const newRepo = ref('')
+const newPriority = ref(1)
+const targetNotice = ref('')
 const base = ref('')
 const ours = ref('')
 const theirs = ref('')
@@ -30,6 +34,50 @@ async function load() {
     status.value = await invoke<AssetStatusPayload>({ op: 'asset.status', workspace: store.currentWorkspace })
   } catch (error) {
     message.value = (error as Error).message
+  } finally {
+    busy.value = false
+  }
+}
+
+async function invokeRaw<T>(request: Parameters<Window['gitmove']['invoke']>[0]): Promise<T> {
+  const result = (await window.gitmove.invoke(request)) as { ok: boolean; data?: T; error?: { message: string } }
+  if (!result.ok) throw new Error(result.error?.message ?? '失败')
+  return result.data as T
+}
+
+async function addTarget() {
+  if (!store.currentWorkspace || !newRepo.value.trim()) {
+    targetNotice.value = '请填写仓库路径（本地目录，例如 E:/backup/video-restic）'
+    return
+  }
+  busy.value = true
+  targetNotice.value = ''
+  try {
+    const current = await invokeRaw<{ text: string; exists: boolean }>({
+      op: 'file.read',
+      workspace: store.currentWorkspace,
+      path: 'workspace.toml'
+    })
+    const block = [
+      '',
+      '[[backup.target]]',
+      `name = "${newName.value.trim() || 'target'}"`,
+      'kind = "local"',
+      `repo = "${newRepo.value.trim().replace(/\\/g, '/')}"`,
+      `priority = ${Number(newPriority.value) || 1}`,
+      ''
+    ].join('\n')
+    await invokeRaw({
+      op: 'file.write',
+      workspace: store.currentWorkspace,
+      path: 'workspace.toml',
+      text: current.text + block
+    })
+    targetNotice.value = '已写入 workspace.toml；接着点「初始化仓库」再「备份全部」'
+    newRepo.value = ''
+    await load()
+  } catch (error) {
+    targetNotice.value = (error as Error).message
   } finally {
     busy.value = false
   }
@@ -151,8 +199,20 @@ watch(
 
     <div v-if="!store.canCommit" class="banner warn">需要 Rust 核心：<code>cargo build --release</code></div>
     <div class="banner info">
-      用法：①「初始化仓库」只做一次（每块盘各建一个 restic 仓库）→ ②「备份全部」写入两块盘 → ③ 下方「快照」列出历史；
-      三路合并选 base/ours/theirs 三个快照即可分析。
+      用法：① 在下方「添加备份目标」填写每块盘的仓库目录（写入 <code>workspace.toml</code> 的 <code>[[backup.target]]</code>）
+      → ②「初始化仓库」只做一次 → ③「备份全部」写两块盘 → ④ 下方「快照」查看历史；三路合并选 base/ours/theirs 即可分析。
+    </div>
+    <div v-if="targetNotice" class="banner ok">{{ targetNotice }}</div>
+
+    <div class="panel pad">
+      <div class="panel-title"><strong>添加备份目标</strong><span class="muted">写入 workspace.toml 的 [[backup.target]]</span></div>
+      <div class="form-row">
+        <label class="field"><span>名称</span><input v-model="newName" class="input" placeholder="drive-e" /></label>
+        <label class="field" style="min-width: 320px"><span>仓库目录（本地绝对路径）</span><input v-model="newRepo" class="input" placeholder="E:/backup/video-restic" /></label>
+        <label class="field" style="min-width: 90px"><span>优先级</span><input v-model.number="newPriority" class="input" type="number" min="1" /></label>
+        <button class="btn primary" :disabled="busy" @click="addTarget">添加目标</button>
+      </div>
+      <p class="hint">提示：仓库目录必须不存在或为空（restic 会初始化它），两块盘用不同目录。</p>
     </div>
     <div v-if="message" class="banner ok">{{ message }}</div>
 

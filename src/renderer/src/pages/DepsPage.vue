@@ -53,6 +53,13 @@ watch(
 
     <div v-if="error" class="banner bad">{{ error }}</div>
 
+    <div class="banner info">
+      数据来自项目根的 <code>project.lock.toml</code>：
+      <code>kind</code>（类型）与 <code>ref</code>/<code>commit</code> 由项目声明；
+      <code>installed[].match=false</code> 表示实装版本与声明不一致 → <strong>漂移</strong>；
+      依赖的 <code>status</code> 不是 ok 且项目里没有任何产物 → <strong>未生效</strong>（声明了但还没落地）。
+    </div>
+
     <div class="panel">
       <table class="table">
         <thead>
