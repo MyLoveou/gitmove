@@ -54,6 +54,10 @@ enum Command {
         #[arg(long)]
         force: bool,
     },
+    Hook {
+        #[command(subcommand)]
+        action: HookAction,
+    },
     #[command(name = "ws")]
     Workspace {
         #[command(subcommand)]
@@ -457,6 +461,23 @@ fn run(cli: &Cli, root: &Path) -> Result<Envelope<serde_json::Value>, CoreError>
             "gitmove_checkout",
             gitmove_core::revision::checkout(root, *id, *force)?,
         )),
+        Command::Hook { action } => match action {
+            HookAction::Status => Ok(success("gitmove_hook_status", gitmove_core::hooks::status(root)?)),
+            HookAction::Install => Ok(success("gitmove_hook_install", gitmove_core::hooks::install(root)?)),
+            HookAction::Uninstall => Ok(success("gitmove_hook_uninstall", gitmove_core::hooks::uninstall(root)?)),
+            HookAction::Run { event, no_block } => {
+                let results = if *no_block {
+                    gitmove_core::hooks::run_advisory(root, event)?
+                } else {
+                    gitmove_core::hooks::run(root, event)?
+                };
+                Ok(success("gitmove_hook_run", results))
+            }
+            HookAction::Add { event, command, advisory } => {
+                gitmove_core::hooks::add(root, event, command, !*advisory)?;
+                Ok(success("gitmove_hook_add", gitmove_core::hooks::status(root)?))
+            }
+        },
         Command::Workspace { action } => match action {
             WsAction::Status => Ok(success("gitmove_ws_status", gitmove_core::workspace::status(root)?)),
             WsAction::BranchList => Ok(success("gitmove_ws_branch_list", gitmove_core::workspace::branch_list(root)?)),
