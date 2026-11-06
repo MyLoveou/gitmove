@@ -33,6 +33,7 @@ export const useWorkspaceStore = defineStore('workspace', {
     revisions: [] as RevisionRow[],
     workspaceStatus: null as WorkspaceStatus | null,
     configToml: '' as string,
+    syncInfo: null as { ahead: number; behind: number; upstream: string | null; dirty: string[] } | null,
     loading: false,
     busy: false,
     error: null as string | null,
@@ -96,6 +97,64 @@ export const useWorkspaceStore = defineStore('workspace', {
         } else {
           this.error = err.message
         }
+      } finally {
+        this.busy = false
+      }
+    },
+    async checkout(id: number, force = false) {
+      if (!this.currentWorkspace) return
+      this.busy = true
+      try {
+        await invoke({ op: 'rev.checkout', workspace: this.currentWorkspace, id, force })
+        this.notice = `已回滚到修订 ${id}`
+        await this.refreshWorkspace()
+        await this.refreshProjects()
+      } catch (error) {
+        const err = error as Error & { code?: string }
+        if (!force && /dirty/i.test(err.message)) {
+          if (window.confirm('工作区有未提交改动。强制回滚会丢弃它们，继续吗？')) {
+            await this.checkout(id, true)
+            return
+          }
+        }
+        this.error = err.message
+      } finally {
+        this.busy = false
+      }
+    },
+    async switchBranch(name: string) {
+      if (!this.currentWorkspace) return
+      this.busy = true
+      try {
+        await invoke({ op: 'ws.switch', workspace: this.currentWorkspace, name })
+        this.notice = `已切换到分支 ${name}`
+        await this.refreshWorkspace()
+      } catch (error) {
+        this.error = (error as Error).message
+      } finally {
+        this.busy = false
+      }
+    },
+    async syncCheck() {
+      if (!this.currentWorkspace) return
+      try {
+        this.syncInfo = await invoke<{ ahead: number; behind: number; upstream: string | null; dirty: string[] }>({
+          op: 'sync.check',
+          workspace: this.currentWorkspace
+        })
+      } catch (error) {
+        this.error = (error as Error).message
+      }
+    },
+    async syncPull() {
+      if (!this.currentWorkspace) return
+      this.busy = true
+      try {
+        await invoke({ op: 'sync.pull', workspace: this.currentWorkspace, fetch: true })
+        this.notice = '已快进拉取'
+        await this.refreshWorkspace()
+      } catch (error) {
+        this.error = (error as Error).message
       } finally {
         this.busy = false
       }

@@ -670,6 +670,62 @@ fn mcp_tools() -> Vec<serde_json::Value> {
             }
         }),
         serde_json::json!({
+            "name": "gitmove_rev_show",
+            "description": "Show one revision with member commits (read-only)",
+            "inputSchema": { "type": "object", "properties": { "id": { "type": "integer" } }, "required": ["id"] }
+        }),
+        serde_json::json!({
+            "name": "gitmove_changes",
+            "description": "Working-tree changes for the workspace and members (read-only)",
+            "inputSchema": { "type": "object", "properties": {} }
+        }),
+        serde_json::json!({
+            "name": "gitmove_checkout",
+            "description": "Restore a revision (needs confirm=true and GITMOVE_MCP_ALLOW_WRITE=1)",
+            "inputSchema": {
+                "type": "object",
+                "properties": { "id": { "type": "integer" }, "force": { "type": "boolean" }, "confirm": { "type": "boolean" } },
+                "required": ["id"]
+            }
+        }),
+        serde_json::json!({
+            "name": "gitmove_ws_diff",
+            "description": "Preview a member's contribution (read-only)",
+            "inputSchema": { "type": "object", "properties": { "member": { "type": "string" } }, "required": ["member"] }
+        }),
+        serde_json::json!({
+            "name": "gitmove_ws_contribute",
+            "description": "Push a member's changes upstream (needs confirm=true and GITMOVE_MCP_ALLOW_WRITE=1)",
+            "inputSchema": {
+                "type": "object",
+                "properties": { "member": { "type": "string" }, "no_push": { "type": "boolean" }, "confirm": { "type": "boolean" } },
+                "required": ["member"]
+            }
+        }),
+        serde_json::json!({
+            "name": "gitmove_asset_merge",
+            "description": "Three-way asset merge plan, or apply it (needs confirm=true to apply)",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "base": { "type": "string" }, "ours": { "type": "string" }, "theirs": { "type": "string" },
+                    "target": { "type": "string" }, "apply": { "type": "boolean" }, "force": { "type": "boolean" },
+                    "confirm": { "type": "boolean" }
+                },
+                "required": ["base", "ours", "theirs"]
+            }
+        }),
+        serde_json::json!({
+            "name": "gitmove_sync_check",
+            "description": "Ahead/behind/upstream for the workspace (read-only)",
+            "inputSchema": { "type": "object", "properties": {} }
+        }),
+        serde_json::json!({
+            "name": "gitmove_config_export",
+            "description": "Export workspace policy and backup targets as TOML (read-only)",
+            "inputSchema": { "type": "object", "properties": {} }
+        }),
+        serde_json::json!({
             "name": "gitmove_commit",
             "description": "Create a revision (needs confirm=true and GITMOVE_MCP_ALLOW_WRITE=1)",
             "inputSchema": {
@@ -707,6 +763,70 @@ fn mcp_call(root: &Path, params: &serde_json::Value, allow_write: bool) -> Resul
                 return Err((-32000, "confirm=true is required for write tools".to_string()));
             }
             gitmove_core::asset::backup(root, None, None).map(|outcome| serde_json::json!(outcome))
+        }
+        "gitmove_rev_show" => {
+            let id = args.get("id").and_then(|value| value.as_i64()).unwrap_or(0);
+            gitmove_core::revision::show(root, id).map(|row| serde_json::json!(row))
+        }
+        "gitmove_changes" => gitmove_core::changes::status(root).map(|rows| serde_json::json!(rows)),
+        "gitmove_checkout" => {
+            if !allow_write {
+                return Err((-32000, "MCP write disabled: set GITMOVE_MCP_ALLOW_WRITE=1".to_string()));
+            }
+            let confirm = args.get("confirm").and_then(|value| value.as_bool()).unwrap_or(false);
+            if !confirm {
+                return Err((-32000, "confirm=true is required for write tools".to_string()));
+            }
+            let id = args.get("id").and_then(|value| value.as_i64()).unwrap_or(0);
+            let force = args.get("force").and_then(|value| value.as_bool()).unwrap_or(false);
+            gitmove_core::revision::checkout(root, id, force).map(|row| serde_json::json!(row))
+        }
+        "gitmove_ws_diff" => {
+            let member = args.get("member").and_then(|value| value.as_str()).unwrap_or_default();
+            gitmove_core::contribute::diff(root, member).map(|row| serde_json::json!(row))
+        }
+        "gitmove_ws_contribute" => {
+            if !allow_write {
+                return Err((-32000, "MCP write disabled: set GITMOVE_MCP_ALLOW_WRITE=1".to_string()));
+            }
+            let confirm = args.get("confirm").and_then(|value| value.as_bool()).unwrap_or(false);
+            if !confirm {
+                return Err((-32000, "confirm=true is required for write tools".to_string()));
+            }
+            let member = args.get("member").and_then(|value| value.as_str()).unwrap_or_default();
+            let no_push = args.get("no_push").and_then(|value| value.as_bool()).unwrap_or(false);
+            gitmove_core::contribute::contribute(root, member, None, no_push).map(|row| serde_json::json!(row))
+        }
+        "gitmove_asset_merge" => {
+            let base = args.get("base").and_then(|value| value.as_str()).unwrap_or_default();
+            let ours = args.get("ours").and_then(|value| value.as_str()).unwrap_or_default();
+            let theirs = args.get("theirs").and_then(|value| value.as_str()).unwrap_or_default();
+            let target = args.get("target").and_then(|value| value.as_str());
+            let name = target.map(str::to_string).unwrap_or_else(|| {
+                gitmove_core::asset::load_targets(root).first().map(|item| item.name.clone()).unwrap_or_default()
+            });
+            let plan = match gitmove_core::merge::plan(root, &name, base, ours, theirs) {
+                Ok(plan) => plan,
+                Err(err) => return Err((-32000, err.message)),
+            };
+            let apply = args.get("apply").and_then(|value| value.as_bool()).unwrap_or(false);
+            if apply {
+                if !allow_write {
+                    return Err((-32000, "MCP write disabled: set GITMOVE_MCP_ALLOW_WRITE=1".to_string()));
+                }
+                let confirm = args.get("confirm").and_then(|value| value.as_bool()).unwrap_or(false);
+                if !confirm {
+                    return Err((-32000, "confirm=true is required for write tools".to_string()));
+                }
+                let force = args.get("force").and_then(|value| value.as_bool()).unwrap_or(false);
+                gitmove_core::merge::apply(root, &name, &plan, force).map(|row| serde_json::json!(row))
+            } else {
+                Ok(serde_json::json!(plan))
+            }
+        }
+        "gitmove_sync_check" => gitmove_core::misc::check(root).map(|row| serde_json::json!(row)),
+        "gitmove_config_export" => {
+            gitmove_core::config::export(root).map(|text| serde_json::json!({ "toml": text }))
         }
         "gitmove_commit" => {
             if !allow_write {

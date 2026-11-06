@@ -110,6 +110,10 @@ pub fn save(root: &Path, policy: &Policy) -> CoreResult<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
+    // Keep one previous version so a bad edit can be recovered.
+    if path.is_file() {
+        let _ = std::fs::copy(&path, path.with_extension("toml.bak"));
+    }
     std::fs::write(path, toml::to_string_pretty(policy).unwrap_or_default())?;
     Ok(())
 }

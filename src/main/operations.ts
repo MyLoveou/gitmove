@@ -8,7 +8,10 @@ import type {
   AssetStatusPayload,
   AssetTargetResult,
   AuditRow,
+  BranchRow,
   ChangeRow,
+  DepRow,
+  SyncCheck,
   CommitOutcome,
   MergePlanPayload,
   Op,
@@ -112,6 +115,40 @@ export async function handleOp(request: Op): Promise<OpResult> {
         if (request.target) argv.push('--target', request.target)
         const results = await call<AssetTargetResult[]>(argv)
         return { ok: true, data: results }
+      }
+      case 'rev.checkout': {
+        requireCore()
+        const argv = ['-C', request.workspace, 'checkout', String(request.id)]
+        if (request.force) argv.push('--force')
+        const data = await call<unknown>(argv)
+        return { ok: true, data }
+      }
+      case 'dep.list': {
+        requireCore()
+        const rows = await call<DepRow[]>(['-C', request.workspace, 'dep', 'list'])
+        return { ok: true, data: rows }
+      }
+      case 'ws.branches': {
+        requireCore()
+        const rows = await call<BranchRow[]>(['-C', request.workspace, 'ws', 'branch-list'])
+        return { ok: true, data: rows }
+      }
+      case 'ws.switch': {
+        requireCore()
+        const rows = await call<BranchRow[]>(['-C', request.workspace, 'ws', 'branch-switch', request.name])
+        return { ok: true, data: rows }
+      }
+      case 'sync.check': {
+        requireCore()
+        const data = await call<SyncCheck>(['-C', request.workspace, 'sync', 'check'])
+        return { ok: true, data }
+      }
+      case 'sync.pull': {
+        requireCore()
+        const argv = ['-C', request.workspace, 'sync', 'pull']
+        if (request.fetch) argv.push('--fetch')
+        const data = await call<unknown>(argv)
+        return { ok: true, data }
       }
       case 'changes.list': {
         requireCore()

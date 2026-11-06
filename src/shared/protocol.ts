@@ -120,6 +120,29 @@ export interface ChangeRow {
   path: string
 }
 
+export interface BranchRow {
+  member: string
+  branch: string
+}
+
+export interface SyncCheck {
+  dirty: string[]
+  ahead: number
+  behind: number
+  upstream: string | null
+}
+
+export interface DepRow {
+  name: string
+  kind: string
+  ref: string | null
+  commit: string | null
+  installed: string | null
+  drift: boolean
+  in_effect: boolean
+  label: string
+}
+
 export interface MergeItem {
   path: string
   action: string
@@ -162,6 +185,12 @@ export type Op =
   | { op: 'asset.backup'; workspace: string; target?: string }
   | { op: 'config.export'; workspace: string }
   | { op: 'config.save'; workspace: string; toml: string }
+  | { op: 'rev.checkout'; workspace: string; id: number; force?: boolean }
+  | { op: 'dep.list'; workspace: string }
+  | { op: 'ws.branches'; workspace: string }
+  | { op: 'ws.switch'; workspace: string; name: string }
+  | { op: 'sync.check'; workspace: string }
+  | { op: 'sync.pull'; workspace: string; fetch?: boolean }
   | { op: 'changes.list'; workspace: string }
   | { op: 'changes.discard'; workspace: string; selections: { member: string; path: string }[] }
   | { op: 'rev.commitPaths'; workspace: string; message: string; selections: { member: string; path: string }[] }

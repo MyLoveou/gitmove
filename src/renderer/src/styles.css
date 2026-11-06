@@ -549,3 +549,9 @@ tr.row-click:hover {
   color: var(--text-dim);
   white-space: pre-wrap;
 }
+
+.btn.tiny {
+  padding: 2px 8px;
+  font-size: 11px;
+  margin-left: 6px;
+}

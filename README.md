@@ -2,7 +2,7 @@
 
 项目工作区的版本控制与备份编排层：一个大项目由**多个 git 仓库**组成（主仓 + AI 规范库 + 工具库 + 本地素材仓），gitmove 把这些仓库当作 **Member** 管理，并把**代码（git）**与**大体积素材（restic）**编成同一个可回滚的**修订（Revision）**。
 
-> 状态：**v0.6.0**（2026-11-06）。应用只依赖 Rust 核心（安装包自带），Python 版仅作历史参考。Rust 核心接管：审计 / 修订（提交·时间线·回滚·重建）/ 多仓工作区 / 依赖清单 / **双盘资产备份** / 依赖回推 / MCP。Electron 五页面可用，Windows 安装包（NSIS）已产出。
+> 状态：**v0.8.0**（2026-11-06）。Rust 核心 + Electron/Vue 五页面；MCP 15 tools；文件级提交。Rust 核心接管：审计 / 修订（提交·时间线·回滚·重建）/ 多仓工作区 / 依赖清单 / **双盘资产备份** / 依赖回推 / MCP。Electron 五页面可用，Windows 安装包（NSIS）已产出。
 
 ## 文档
 
@@ -35,8 +35,9 @@ src/shared/    跨进程协议类型
 | 双盘资产备份（互不阻塞，部分失败=2） | `asset init/status/backup/snapshots/check/restore` |
 | 依赖清单（漂移/未生效） | `dep list` |
 | 依赖回推（冲突不自动解决，断网降级 bundle） | `ws diff` / `ws contribute` |
-| MCP（stdio，7 tools + 1 prompt + 1 resource） | `mcp` |
+| MCP（stdio，15 tools + prompt + resource） | `mcp` |
 | 三路资产合并（判定表 + 冲突清单 + 强制应用） | `asset merge` / `asset ls` |
+| 文件级变更 / 选择提交 / 放弃 | `changes` / `commit --path` / `discard --path` |
 | 策略迁移（skip / link junction / worktree / apply） | `policy skip|link|worktree|apply` |
 | 工作区分支/合并（逐成员 git 语义） | `ws branch-list|branch-create|branch-switch|merge` |
 | 保留策略透传 / 体积守卫 | `asset prune` / `asset guard` |

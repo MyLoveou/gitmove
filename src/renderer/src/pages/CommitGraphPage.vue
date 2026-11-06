@@ -18,6 +18,11 @@ async function submit() {
   }
 }
 
+function rollback(id: number) {
+  if (!window.confirm(`回滚到修订 #${id}？代码与成员仓库都会切换，资产需单独恢复。`)) return
+  void store.checkout(id)
+}
+
 function short(commit: string | null): string {
   return commit ? commit.slice(0, 7) : '—'
 }
@@ -80,6 +85,7 @@ function short(commit: string | null): string {
               <span class="rev-msg">{{ row.message }}</span>
               <span class="rev-meta mono">{{ short(row.git_commit) }}</span>
               <span v-if="row.branch" class="badge">{{ row.branch }}</span>
+              <button class="btn tiny" :disabled="store.busy" @click="rollback(row.id)">回滚</button>
             </div>
             <div class="rev-members">
               <span v-for="member in row.members" :key="member.member" class="chip" :class="{ dirty: member.dirty }">

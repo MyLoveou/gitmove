@@ -12,6 +12,7 @@ const nav = [
   { label: '变更', hint: '文件级', to: '/changes', enabled: true },
   { label: '提交图', hint: 'M3', to: '/graph', enabled: true },
   { label: '工作区', hint: 'M2', to: '/workspace', enabled: true },
+  { label: '依赖', hint: 'lock', to: '/deps', enabled: true },
   { label: '备份', hint: 'M4', to: '/backup', enabled: true },
   { label: '设置', hint: 'M5', to: '/settings', enabled: true }
 ]
