@@ -130,6 +130,16 @@ export interface BranchRefs {
   remote: string[]
 }
 
+export interface GraphNode {
+  sha: string
+  short: string
+  parents: string[]
+  refs: string[]
+  subject: string
+  author: string
+  date: string
+}
+
 export interface SyncCheck {
   dirty: string[]
   ahead: number
@@ -197,7 +207,7 @@ export type Op =
   | { op: 'sync.check'; workspace: string }
   | { op: 'sync.pull'; workspace: string; fetch?: boolean; mode?: 'merge' | 'rebase' }
   | { op: 'ws.refs'; workspace: string }
-  | { op: 'graph'; workspace: string; limit?: number; branch?: string }
+  | { op: 'graph'; workspace: string; limit?: number; branch?: string; all?: boolean }
   | { op: 'logs.read'; lines?: number }
   | { op: 'rev.importGit'; workspace: string; limit?: number }
   | { op: 'file.list'; workspace: string }

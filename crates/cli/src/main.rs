@@ -87,12 +87,14 @@ enum Command {
     },
     /// Commit graph (git log --graph).
     Graph {
-        #[arg(long, default_value_t = 80)]
+        #[arg(long, default_value_t = 200)]
         limit: u32,
         #[arg(long)]
         branch: Option<String>,
         #[arg(long)]
         all: bool,
+        #[arg(long)]
+        text: bool,
     },
     /// Sync check / fast-forward pull.
     Sync {
@@ -494,9 +496,16 @@ fn run(cli: &Cli, root: &Path) -> Result<Envelope<serde_json::Value>, CoreError>
                 gitmove_core::asset::restore(root, snapshot, target.as_deref())?,
             )),
         },
-        Command::Graph { limit, branch, all } => {
-            let branch = if *all { None } else { branch.clone() };
-            Ok(success("gitmove_graph", gitmove_core::misc::graph(root, *limit, branch.as_deref())?))
+        Command::Graph { limit, branch, all, text } => {
+            if *text {
+                let branch = if *all { None } else { branch.clone() };
+                Ok(success("gitmove_graph", gitmove_core::misc::graph(root, *limit, branch.as_deref())?))
+            } else {
+                Ok(success(
+                    "gitmove_graph",
+                    gitmove_core::misc::graph_nodes(root, *limit, branch.as_deref(), *all)?,
+                ))
+            }
         }
         Command::Sync { action } => match action {
             SyncAction::Check => Ok(success("gitmove_sync_check", gitmove_core::misc::check(root)?)),

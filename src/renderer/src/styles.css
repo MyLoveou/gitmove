@@ -743,3 +743,39 @@ tr.row-click:hover {
   color: var(--text-dim);
   white-space: pre;
 }
+
+.graph-shell { position: relative; }
+
+.graph-toolbar {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin: 10px 0 6px;
+}
+
+.graph-scroll {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  overflow: auto;
+  max-height: 420px;
+}
+
+.graph-node { cursor: pointer; }
+
+.graph-text {
+  fill: var(--text-dim);
+  font-family: var(--mono);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.graph-text:hover { fill: var(--accent); }
+
+.graph-ref { fill: var(--accent); }
+
+.graph-detail {
+  margin-top: 12px;
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+}

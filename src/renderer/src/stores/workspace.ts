@@ -37,7 +37,9 @@ export const useWorkspaceStore = defineStore('workspace', {
     activeFile: '' as string,
     fileText: '' as string,
     branchRefs: { local: [] as string[], remote: [] as string[] },
-    graphLines: [] as string[],
+    graphNodes: [] as import('../../../shared/protocol').GraphNode[],
+    graphAll: false,
+    graphBranch: '',
     logText: '',
     syncInfo: null as { ahead: number; behind: number; upstream: string | null; dirty: string[] } | null,
     loading: false,
@@ -89,7 +91,7 @@ export const useWorkspaceStore = defineStore('workspace', {
       this.notice = null
       this.error = null
       this.syncInfo = null
-      this.graphLines = []
+      this.graphNodes = []
       await this.refreshWorkspace()
       await this.loadRefs()
       await this.loadGraph()
@@ -105,14 +107,15 @@ export const useWorkspaceStore = defineStore('workspace', {
         this.error = (error as Error).message
       }
     },
-    async loadGraph(branch?: string) {
+    async loadGraph(branch?: string, all?: boolean) {
       if (!this.currentWorkspace) return
       try {
-        this.graphLines = await invoke<string[]>({
+        this.graphNodes = await invoke<import('../../../shared/protocol').GraphNode[]>({
           op: 'graph',
           workspace: this.currentWorkspace,
-          limit: 80,
-          branch
+          limit: 200,
+          branch: branch ?? this.graphBranch ?? undefined,
+          all: all ?? this.graphAll
         })
       } catch (error) {
         this.error = (error as Error).message

@@ -9,6 +9,7 @@ import type {
   AssetTargetResult,
   AuditRow,
   BranchRefs,
+  GraphNode,
   BranchRow,
   ChangeRow,
   DepRow,
@@ -195,10 +196,10 @@ export async function handleOp(request: Op): Promise<OpResult> {
       }
       case 'graph': {
         requireCore()
-        const argv = ['-C', request.workspace, 'graph', '--limit', String(request.limit ?? 60)]
-        if (request.branch) argv.push('--branch', request.branch)
-        else argv.push('--all')
-        const data = await call<string[]>(argv)
+        const argv = ['-C', request.workspace, 'graph', '--limit', String(request.limit ?? 200)]
+        if (request.all) argv.push('--all')
+        else if (request.branch) argv.push('--branch', request.branch)
+        const data = await call<GraphNode[]>(argv)
         return { ok: true, data }
       }
       case 'logs.read': {

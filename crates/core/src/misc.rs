@@ -230,3 +230,64 @@ pub fn vendor_templates() -> Vec<VendorTemplate> {
         },
     ]
 }
+
+
+#[derive(Debug, Clone, Serialize)]
+pub struct GraphNode {
+    pub sha: String,
+    pub short: String,
+    pub parents: Vec<String>,
+    pub refs: Vec<String>,
+    pub subject: String,
+    pub author: String,
+    pub date: String,
+}
+
+/// Structured commit graph for the SVG renderer.
+pub fn graph_nodes(root: &Path, limit: u32, branch: Option<&str>, all: bool) -> CoreResult<Vec<GraphNode>> {
+    let limit_arg = format!("-n{}", limit.max(1));
+    let format = "--format=%H\u{1f}%P\u{1f}%D\u{1f}%s\u{1f}%an\u{1f}%aI";
+    let mut args: Vec<&str> = vec!["log", "--date-order", format, &limit_arg];
+    if all {
+        args.push("--all");
+    } else if let Some(name) = branch {
+        if !name.is_empty() {
+            args.push(name);
+        }
+    }
+    let raw = git::run(root, &args)?;
+    let mut nodes = Vec::new();
+    for line in raw.lines() {
+        let mut parts = line.split('\u{1f}');
+        let sha = parts.next().unwrap_or_default().trim().to_string();
+        if sha.is_empty() {
+            continue;
+        }
+        let parents = parts
+            .next()
+            .unwrap_or_default()
+            .split_whitespace()
+            .map(str::to_string)
+            .collect();
+        let refs = parts
+            .next()
+            .unwrap_or_default()
+            .split(", ")
+            .filter(|value| !value.is_empty())
+            .map(|value| value.trim().to_string())
+            .collect();
+        let subject = parts.next().unwrap_or_default().to_string();
+        let author = parts.next().unwrap_or_default().to_string();
+        let date = parts.next().unwrap_or_default().to_string();
+        nodes.push(GraphNode {
+            short: sha.chars().take(7).collect(),
+            sha,
+            parents,
+            refs,
+            subject,
+            author,
+            date,
+        });
+    }
+    Ok(nodes)
+}
