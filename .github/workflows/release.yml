@@ -123,7 +123,7 @@ jobs:
           if gh release view "$tag" >/dev/null 2>&1; then
             echo "release exists, uploading assets (idempotent)"
             gh release upload "$tag" artifacts/*.exe --clobber
-            gh release edit "$tag" --title "gitmove v${{ needs.verify.outputs.version }}" --generate-notes
+            gh release edit "$tag" --title "gitmove v${{ needs.verify.outputs.version }}" || true
           else
             gh release create "$tag" artifacts/*.exe \
               --title "gitmove v${{ needs.verify.outputs.version }}" \
