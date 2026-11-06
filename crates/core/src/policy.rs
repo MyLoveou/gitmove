@@ -202,7 +202,10 @@ pub fn link_add(
 }
 
 
-fn create_link(link_path: &Path, external: &Path, kind: &str) -> CoreResult<()> {
+pub fn create_link(link_path: &Path, external: &Path, kind: &str) -> CoreResult<()> {
+    if let Some(parent) = link_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
     #[cfg(windows)]
     {
         if kind == "symlink" {

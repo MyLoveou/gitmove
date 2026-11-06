@@ -9,6 +9,7 @@ import type {
   AssetTargetResult,
   AuditRow,
   BranchRefs,
+  MergeStatePayload,
   GraphNode,
   BranchRow,
   ChangeRow,
@@ -192,6 +193,55 @@ export async function handleOp(request: Op): Promise<OpResult> {
       case 'ws.refs': {
         requireCore()
         const data = await call<BranchRefs>(['-C', request.workspace, 'ws', 'refs'])
+        return { ok: true, data }
+      }
+      case 'ws.add': {
+        requireCore()
+        const argv = [
+          '-C',
+          request.workspace,
+          'ws',
+          'add',
+          request.name,
+          '--path',
+          request.path,
+          '--role',
+          request.role,
+          '--strategy',
+          request.strategy,
+          '--source',
+          request.source
+        ]
+        if (request.pin) argv.push('--pin', request.pin)
+        if (request.track) argv.push('--track', request.track)
+        const data = await call<unknown>(argv)
+        return { ok: true, data }
+      }
+      case 'ws.contribute': {
+        requireCore()
+        const data = await call<unknown>(['-C', request.workspace, 'ws', 'contribute', request.member])
+        return { ok: true, data }
+      }
+      case 'asset.test': {
+        requireCore()
+        const argv = ['-C', request.workspace, 'asset', 'test']
+        if (request.target) argv.push('--target', request.target)
+        const data = await call<unknown[]>(argv)
+        return { ok: true, data }
+      }
+      case 'asset.state': {
+        requireCore()
+        const data = await call<MergeStatePayload | null>(['-C', request.workspace, 'asset', 'state'])
+        return { ok: true, data }
+      }
+      case 'asset.resolve': {
+        requireCore()
+        const data = await call<MergeStatePayload>(['-C', request.workspace, 'asset', 'resolve', request.path, '--take', request.take])
+        return { ok: true, data }
+      }
+      case 'asset.continue': {
+        requireCore()
+        const data = await call<MergeStatePayload>(['-C', request.workspace, 'asset', 'continue'])
         return { ok: true, data }
       }
       case 'ws.sync': {

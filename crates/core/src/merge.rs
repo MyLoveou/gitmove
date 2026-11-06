@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::asset;
 use crate::error::{CoreError, CoreResult};
+use crate::paths;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct FileEntry {
@@ -352,5 +353,143 @@ pub fn apply(root: &Path, target: &str, plan: &MergePlan, force: bool) -> CoreRe
         let file = root.join(path);
         let _ = std::fs::remove_file(&file);
     }
+
+    if plan.conflicts.is_empty() {
+        clear_state(root);
+    } else {
+        write_state(
+            root,
+            &MergeState {
+                target: target.to_string(),
+                base: plan.base.clone(),
+                ours: plan.ours.clone(),
+                theirs: plan.theirs.clone(),
+                pending: plan.conflicts.iter().map(|item| item.path.clone()).collect(),
+                resolved: Vec::new(),
+            },
+        )?;
+    }
     Ok(plan.clone())
+}
+
+
+#[derive(Debug, Clone, Default, Serialize, serde::Deserialize)]
+pub struct MergeState {
+    pub target: String,
+    pub base: String,
+    pub ours: String,
+    pub theirs: String,
+    pub pending: Vec<String>,
+    pub resolved: Vec<String>,
+}
+
+fn state_path(root: &Path) -> std::path::PathBuf {
+    root.join(".gitmove").join("merge-state.json")
+}
+
+pub fn read_state(root: &Path) -> Option<MergeState> {
+    let raw = std::fs::read_to_string(state_path(root)).ok()?;
+    serde_json::from_str(&raw).ok()
+}
+
+fn write_state(root: &Path, state: &MergeState) -> CoreResult<()> {
+    let path = state_path(root);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(path, serde_json::to_string_pretty(state).unwrap_or_default())?;
+    Ok(())
+}
+
+pub fn clear_state(root: &Path) {
+    let _ = std::fs::remove_file(state_path(root));
+}
+
+fn restore_one(root: &Path, target: &asset::Target, snapshot: &str, path: &str, destination: Option<&Path>) -> CoreResult<()> {
+    let restic = asset::restic_path().ok_or_else(|| CoreError::new("RESTIC_MISSING", "restic 不在 PATH"))?;
+    let password = snapshot_password(&target.name, root)?;
+    let mut command = Command::new(restic);
+    command.arg("-r").arg(&target.repo);
+    if let Some((kind, value)) = &password {
+        if kind == "env" {
+            command.env("RESTIC_PASSWORD", value);
+        } else {
+            command.arg("--password-file").arg(value);
+        }
+    }
+    let dest = destination.map(|value| value.to_string_lossy().to_string()).unwrap_or_else(|| root.to_string_lossy().to_string());
+    command.args(["restore", snapshot, "--target", &dest, "--include", &format!("/{path}")]);
+    let output = command.output()?;
+    if !output.status.success() {
+        return Err(CoreError::new(
+            "ASSET_RESTORE_FAILED",
+            String::from_utf8_lossy(&output.stderr).trim().to_string(),
+        ));
+    }
+    Ok(())
+}
+
+/// Resolve one conflicted path: ours, theirs, or keep both (theirs gets a suffix).
+pub fn resolve(root: &Path, path: &str, take: &str) -> CoreResult<MergeState> {
+    let mut state = read_state(root).ok_or_else(|| {
+        CoreError::new("MERGE_NOT_ACTIVE", "当前没有进行中的资产合并").with_steps(vec![
+            "先运行 gitmove asset merge --base ... --ours ... --theirs ... --apply".to_string(),
+        ])
+    })?;
+    let target = asset::load_targets(root)
+        .into_iter()
+        .find(|item| item.name == state.target)
+        .ok_or_else(|| CoreError::new("ASSET_NO_TARGET", format!("没有备份目标: {}", state.target)))?;
+
+    match take {
+        "ours" => restore_one(root, &target, &state.ours, path, None)?,
+        "theirs" => restore_one(root, &target, &state.theirs, path, None)?,
+        "both" => {
+            let temp = std::env::temp_dir().join(format!("gitmove-theirs-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&temp);
+            restore_one(root, &target, &state.theirs, path, Some(&temp))?;
+            let staged = temp.join(path);
+            if staged.is_file() {
+                let original = Path::new(path);
+                let stem = original.file_stem().map(|value| value.to_string_lossy().to_string()).unwrap_or_default();
+                let ext = original.extension().map(|value| format!(".{}", value.to_string_lossy())).unwrap_or_default();
+                let renamed = original.with_file_name(format!("{stem}.theirs{ext}"));
+                if let Some(parent) = root.join(&renamed).parent() {
+                    std::fs::create_dir_all(parent)?;
+                }
+                std::fs::copy(&staged, root.join(&renamed))?;
+            }
+            let _ = std::fs::remove_dir_all(&temp);
+        }
+        other => {
+            return Err(CoreError::new("MERGE_TAKE_INVALID", format!("未知选择: {other}（ours/theirs/both）")));
+        }
+    }
+
+    state.pending.retain(|item| item != path);
+    if !state.resolved.contains(&path.to_string()) {
+        state.resolved.push(path.to_string());
+    }
+    if state.pending.is_empty() {
+        clear_state(root);
+    } else {
+        write_state(root, &state)?;
+    }
+    Ok(state)
+}
+
+/// Finish a merge: only allowed when no conflicts remain.
+pub fn finish_merge(root: &Path) -> CoreResult<MergeState> {
+    match read_state(root) {
+        Some(state) if !state.pending.is_empty() => Err(CoreError::new(
+            "MERGE_PENDING",
+            format!("还有 {} 个冲突未解决", state.pending.len()),
+        )
+        .with_steps(state.pending.iter().take(5).map(|path| format!("gitmove asset resolve {path} --take ours|theirs|both")).collect())),
+        Some(state) => {
+            clear_state(root);
+            Ok(state)
+        }
+        None => Ok(MergeState::default()),
+    }
 }

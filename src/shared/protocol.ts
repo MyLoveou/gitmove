@@ -125,6 +125,15 @@ export interface BranchRow {
   branch: string
 }
 
+export interface MergeStatePayload {
+  target: string
+  base: string
+  ours: string
+  theirs: string
+  pending: string[]
+  resolved: string[]
+}
+
 export interface BranchRefs {
   local: string[]
   remote: string[]
@@ -209,6 +218,12 @@ export type Op =
   | { op: 'ws.refs'; workspace: string }
   | { op: 'ws.sync'; workspace: string; member?: string }
   | { op: 'ws.update'; workspace: string; member?: string; to?: string }
+  | { op: 'ws.add'; workspace: string; name: string; path: string; role: string; strategy: string; source: string; pin?: string; track?: string }
+  | { op: 'ws.contribute'; workspace: string; member: string }
+  | { op: 'asset.test'; workspace: string; target?: string }
+  | { op: 'asset.state'; workspace: string }
+  | { op: 'asset.resolve'; workspace: string; path: string; take: string }
+  | { op: 'asset.continue'; workspace: string }
   | { op: 'graph'; workspace: string; limit?: number; branch?: string; all?: boolean }
   | { op: 'logs.read'; lines?: number }
   | { op: 'rev.importGit'; workspace: string; limit?: number }

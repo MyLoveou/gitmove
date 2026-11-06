@@ -129,11 +129,47 @@ export const useWorkspaceStore = defineStore('workspace', {
         this.error = (error as Error).message
       }
     },
-    async wsSync() {
+    async addMember(payload: {
+      name: string
+      path: string
+      role: string
+      strategy: string
+      source: string
+      pin?: string
+      track?: string
+    }) {
+      if (!this.currentWorkspace) return false
+      this.busy = true
+      try {
+        await invoke({ op: 'ws.add', workspace: this.currentWorkspace, ...payload })
+        this.notice = `已添加成员 ${payload.name}`
+        await this.refreshWorkspace()
+        return true
+      } catch (error) {
+        this.error = (error as Error).message
+        return false
+      } finally {
+        this.busy = false
+      }
+    },
+    async wsPush(member: string) {
       if (!this.currentWorkspace) return
       this.busy = true
       try {
-        await invoke({ op: 'ws.sync', workspace: this.currentWorkspace })
+        await invoke({ op: 'ws.contribute', workspace: this.currentWorkspace, member })
+        this.notice = `已回推成员 ${member}`
+        await this.refreshWorkspace()
+      } catch (error) {
+        this.error = (error as Error).message
+      } finally {
+        this.busy = false
+      }
+    },
+    async wsSync(member?: string) {
+      if (!this.currentWorkspace) return
+      this.busy = true
+      try {
+        await invoke({ op: 'ws.sync', workspace: this.currentWorkspace, member })
         this.notice = '已按 workspace.lock.toml 同步成员'
         await this.refreshWorkspace()
       } catch (error) {
@@ -142,11 +178,11 @@ export const useWorkspaceStore = defineStore('workspace', {
         this.busy = false
       }
     },
-    async wsUpdate() {
+    async wsUpdate(member?: string) {
       if (!this.currentWorkspace) return
       this.busy = true
       try {
-        await invoke({ op: 'ws.update', workspace: this.currentWorkspace })
+        await invoke({ op: 'ws.update', workspace: this.currentWorkspace, member })
         this.notice = '已更新 pin 并写入 workspace.lock.toml'
         await this.refreshWorkspace()
       } catch (error) {

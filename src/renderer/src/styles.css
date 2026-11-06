@@ -780,3 +780,14 @@ tr.row-click:hover {
   border-top: 1px solid var(--border);
   padding-top: 10px;
 }
+
+.nowrap { white-space: nowrap; }
+
+.conflict-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}

@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use crate::error::{CoreError, CoreResult};
 use crate::git;
 use crate::paths;
+use crate::policy;
 
 #[derive(Debug, Clone, Deserialize)]
 struct WorkspaceFile {
@@ -525,4 +526,169 @@ pub fn update(root: &Path, member_filter: Option<&str>, to: Option<&str>) -> Cor
     }
     write_lock(root, &entries)?;
     Ok(results)
+}
+
+
+#[derive(Debug, Clone, Serialize)]
+pub struct AddOutcome {
+    pub member: String,
+    pub path: String,
+    pub cache: String,
+    pub commit: String,
+    pub strategy: String,
+    pub message: String,
+}
+
+fn push_workspace_member(root: &Path, block: &str) -> CoreResult<()> {
+    let manifest = paths::workspace_manifest(root);
+    let mut text = std::fs::read_to_string(&manifest).unwrap_or_default();
+    if text.trim().is_empty() {
+        let name = root
+            .file_name()
+            .map(|value| value.to_string_lossy().to_string())
+            .unwrap_or_else(|| "workspace".to_string());
+        text = format!("version = 1\n[workspace]\nname = \"{name}\"\n");
+    }
+    if !text.ends_with('\n') {
+        text.push('\n');
+    }
+    text.push_str(block);
+    std::fs::write(&manifest, text)?;
+    Ok(())
+}
+
+fn append_exclude(root: &Path, relative: &str) -> CoreResult<()> {
+    let exclude = root.join(".git").join("info").join("exclude");
+    if let Some(parent) = exclude.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let mut text = std::fs::read_to_string(&exclude).unwrap_or_default();
+    let entry = format!("/{}/", relative.trim_matches('/'));
+    if !text.lines().any(|line| line.trim() == entry) {
+        if !text.is_empty() && !text.ends_with('\n') {
+            text.push('\n');
+        }
+        text.push_str(&entry);
+        text.push('\n');
+        std::fs::write(&exclude, text)?;
+    }
+    Ok(())
+}
+
+fn write_lock_entry(root: &Path, name: &str, commit: &str, reference: &str) -> CoreResult<()> {
+    let mut rows = read_lock_entries(root);
+    rows.retain(|(entry, _, _)| entry != name);
+    rows.push((name.to_string(), commit.to_string(), reference.to_string()));
+    write_lock(root, &rows)
+}
+
+/// Add a member: vendor = clone to cache + junction; clone = nested clone; link = junction to source.
+pub fn add_member(
+    root: &Path,
+    name: &str,
+    relative_path: &str,
+    role: &str,
+    strategy: &str,
+    source: &str,
+    pin: &str,
+    track: &str,
+) -> CoreResult<AddOutcome> {
+    let name = name.trim();
+    let relative = relative_path.trim().trim_matches('/');
+    if name.is_empty() || relative.is_empty() {
+        return Err(CoreError::new("MEMBER_INVALID", "成员名与路径必填"));
+    }
+    let target = root.join(relative);
+    if std::fs::symlink_metadata(&target).is_ok() {
+        return Err(CoreError::new("MEMBER_PATH_EXISTS", format!("目标路径已存在: {}", target.display()))
+            .with_steps(vec!["先移走该目录，或换一个 path".to_string()]));
+    }
+    let strategy = if strategy.is_empty() { "vendor" } else { strategy };
+    let reference = if !pin.is_empty() {
+        pin.to_string()
+    } else if !track.is_empty() {
+        format!("origin/{track}")
+    } else {
+        String::new()
+    };
+
+    let mut cache_dir = String::new();
+    let mut checkout_ref = reference.clone();
+    match strategy {
+        "vendor" => {
+            if source.trim().is_empty() {
+                return Err(CoreError::new("MEMBER_SOURCE_REQUIRED", "vendor 策略需要 source 仓库地址"));
+            }
+            let cache = paths::home_dir().join("cache").join(name);
+            if let Some(parent) = cache.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            if cache.join(".git").exists() {
+                let _ = git::run_allow_fail(&cache, &["fetch", "--all", "--prune"]);
+            } else {
+                git::run(
+                    root,
+                    &["clone", "--filter=blob:none", source, &cache.to_string_lossy()],
+                )
+                .or_else(|_| git::run(root, &["clone", source, &cache.to_string_lossy()]))?;
+            }
+            let pick = if checkout_ref.is_empty() {
+                git::run_allow_fail(&cache, &["symbolic-ref", "--short", "HEAD"])
+                    .map(|value| value.trim().to_string())
+                    .filter(|value| !value.is_empty())
+                    .unwrap_or_else(|| "HEAD".to_string())
+            } else {
+                checkout_ref.clone()
+            };
+            let resolved = git::run_allow_fail(&cache, &["rev-parse", &format!("{pick}^{{commit}}")])
+                .map(|value| value.trim().to_string())
+                .unwrap_or_default();
+            let checkout = if resolved.is_empty() { pick.clone() } else { resolved.clone() };
+            git::run(&cache, &["checkout", "--detach", &checkout])?;
+            policy::create_link(&target, &cache, "junction")?;
+            cache_dir = cache.to_string_lossy().to_string();
+        }
+        "clone" => {
+            if source.trim().is_empty() {
+                return Err(CoreError::new("MEMBER_SOURCE_REQUIRED", "clone 策略需要 source 仓库地址"));
+            }
+            git::run(root, &["clone", source, &target.to_string_lossy()])?;
+            if !reference.is_empty() {
+                let _ = git::run(&target, &["checkout", "--detach", &reference]);
+            }
+        }
+        "link" => {
+            if source.trim().is_empty() {
+                return Err(CoreError::new("MEMBER_SOURCE_REQUIRED", "link 策略需要 source 目录"));
+            }
+            policy::create_link(&target, Path::new(source), "junction")?;
+        }
+        _ => {
+            return Err(CoreError::new("MEMBER_STRATEGY_UNKNOWN", format!("未知策略: {strategy}")));
+        }
+    }
+
+    append_exclude(root, relative)?;
+    let commit = git::head(&target).unwrap_or_default();
+    if commit.is_empty() {
+        checkout_ref = reference.clone();
+    }
+    let block = format!(
+        "\n[[member]]\nname = \"{name}\"\npath = \"{relative}\"\nrole = \"{role}\"\nstrategy = \"{strategy}\"\nsource = \"{source}\"\n{}{}",
+        if pin.is_empty() { String::new() } else { format!("pin = \"{pin}\"\n") },
+        if track.is_empty() { String::new() } else { format!("track = \"{track}\"\n") }
+    );
+    push_workspace_member(root, &block)?;
+    if !commit.is_empty() {
+        write_lock_entry(root, name, &commit, &reference)?;
+    }
+
+    Ok(AddOutcome {
+        member: name.to_string(),
+        path: relative.to_string(),
+        cache: cache_dir,
+        commit,
+        strategy: strategy.to_string(),
+        message: "member added".to_string(),
+    })
 }

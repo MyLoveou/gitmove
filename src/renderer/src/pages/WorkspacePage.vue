@@ -8,7 +8,7 @@ const store = useWorkspaceStore()
 const status = computed(() => store.workspaceStatus)
 const branches = ref<BranchRow[]>([])
 const target = ref('')
-const newMember = ref({ name: '', path: '', role: 'editable', strategy: 'vendor', source: '', pin: '' })
+const newMember = ref({ name: '', path: '', role: 'editable', strategy: 'vendor', source: '', pin: '', track: '' })
 const memberNotice = ref('')
 const busy = ref(false)
 
@@ -44,26 +44,27 @@ async function addMember() {
     memberNotice.value = '成员名和路径必填'
     return
   }
+  if (member.strategy !== 'link' && !member.source.trim()) {
+    memberNotice.value = 'vendor / clone 策略需要来源地址'
+    return
+  }
   busy.value = true
   memberNotice.value = ''
   try {
-    const current = await readWorkspaceToml()
-    const block = [
-      '',
-      '[[member]]',
-      `name = "${member.name.trim()}"`,
-      `path = "${member.path.trim().replace(/\\/g, '/')}"`,
-      `role = "${member.role}"`,
-      `strategy = "${member.strategy}"`,
-      member.source.trim() ? `source = "${member.source.trim()}"` : '',
-      member.pin.trim() ? `pin = "${member.pin.trim()}"` : '',
-      ''
-    ].filter((line) => line !== '').join('\n') + '\n'
-    await writeWorkspaceToml(current.trimEnd() + '\n' + block)
-    memberNotice.value = `已添加成员 ${member.name}`
-    newMember.value = { name: '', path: '', role: 'editable', strategy: 'vendor', source: '', pin: '' }
-    await store.refreshWorkspace()
-    await load()
+    const ok = await store.addMember({
+      name: member.name.trim(),
+      path: member.path.trim().replace(/\\/g, '/'),
+      role: member.role,
+      strategy: member.strategy,
+      source: member.source.trim(),
+      pin: member.pin.trim() || undefined,
+      track: member.track.trim() || undefined
+    })
+    if (ok) {
+      memberNotice.value = `已添加成员 ${member.name}（已克隆/挂载/写锁）`
+      newMember.value = { name: '', path: '', role: 'editable', strategy: 'vendor', source: '', pin: '', track: '' }
+      await load()
+    }
   } catch (error) {
     memberNotice.value = (error as Error).message
   } finally {
@@ -166,7 +167,12 @@ watch(() => store.currentWorkspace, () => {
                 <span v-else class="badge ok">clean</span>
               </td>
               <td class="mono dim path">{{ member.path }}</td>
-              <td><button class="btn tiny" :disabled="busy" @click="removeMember(member.name)">移除</button></td>
+              <td class="nowrap">
+                <button class="btn tiny" :disabled="busy" @click="store.wsSync(member.name)">同步</button>
+                <button class="btn tiny" :disabled="busy" @click="store.wsUpdate(member.name)">更新</button>
+                <button class="btn tiny" :disabled="busy" @click="store.wsPush(member.name)">回推</button>
+                <button class="btn tiny" :disabled="busy" @click="removeMember(member.name)">移除</button>
+              </td>
             </tr>
           </tbody>
         </table>
@@ -198,6 +204,7 @@ watch(() => store.currentWorkspace, () => {
         <div class="form-row" style="margin-top: 8px">
           <label class="field" style="min-width: 320px"><span>来源（可选）</span><input v-model="newMember.source" class="input" placeholder="git@github.com:you/spec.git" /></label>
           <label class="field"><span>pin（可选）</span><input v-model="newMember.pin" class="input" placeholder="v0.5.0 / commit" /></label>
+          <label class="field"><span>track（可选）</span><input v-model="newMember.track" class="input" placeholder="master" /></label>
           <button class="btn primary" :disabled="busy" @click="addMember">添加成员</button>
         </div>
       </div>

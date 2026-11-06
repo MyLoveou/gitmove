@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 
-import type { AssetStatusPayload, MergePlanPayload, AssetSnapshot } from '../../../shared/protocol'
+import type { AssetStatusPayload, MergePlanPayload, MergeStatePayload, AssetSnapshot } from '../../../shared/protocol'
 import { useWorkspaceStore } from '../stores/workspace'
 
 const store = useWorkspaceStore()
@@ -18,6 +18,8 @@ const base = ref('')
 const ours = ref('')
 const theirs = ref('')
 const plan = ref<MergePlanPayload | null>(null)
+const mergeState = ref<MergeStatePayload | null>(null)
+const testResults = ref<{ target: string; ok: boolean; message: string }[]>([])
 
 const snapshots = computed<AssetSnapshot[]>(() => status.value?.snapshots ?? [])
 
@@ -32,6 +34,57 @@ async function load() {
   busy.value = true
   try {
     status.value = await invoke<AssetStatusPayload>({ op: 'asset.status', workspace: store.currentWorkspace })
+    mergeState.value = await invoke<MergeStatePayload | null>({
+      op: 'asset.state',
+      workspace: store.currentWorkspace
+    })
+  } catch (error) {
+    message.value = (error as Error).message
+  } finally {
+    busy.value = false
+  }
+}
+
+async function testTargets() {
+  busy.value = true
+  message.value = ''
+  try {
+    testResults.value = await invoke<{ target: string; ok: boolean; message: string }[]>({
+      op: 'asset.test',
+      workspace: store.currentWorkspace
+    })
+    message.value = '目标测试完成'
+  } catch (error) {
+    message.value = (error as Error).message
+  } finally {
+    busy.value = false
+  }
+}
+
+async function resolvePath(path: string, take: string) {
+  busy.value = true
+  try {
+    mergeState.value = await invoke<MergeStatePayload>({
+      op: 'asset.resolve',
+      workspace: store.currentWorkspace,
+      path,
+      take
+    })
+    message.value = `已处理 ${path}（${take}）`
+  } catch (error) {
+    message.value = (error as Error).message
+  } finally {
+    busy.value = false
+  }
+}
+
+async function finishMerge() {
+  busy.value = true
+  try {
+    await invoke({ op: 'asset.continue', workspace: store.currentWorkspace })
+    mergeState.value = null
+    message.value = '合并已完成'
+    await load()
   } catch (error) {
     message.value = (error as Error).message
   } finally {
@@ -191,6 +244,7 @@ watch(
       <div class="actions">
         <button class="btn ghost" :disabled="busy" @click="load">刷新</button>
         <button class="btn ghost" :disabled="busy" @click="initRepos">初始化仓库</button>
+        <button class="btn ghost" :disabled="busy || !status?.targets?.length" @click="testTargets">测试目标</button>
         <button class="btn primary" :disabled="busy || !status?.restic_version" @click="backupAll">
           {{ busy ? '处理中…' : '备份全部' }}
         </button>
@@ -264,6 +318,32 @@ watch(
           <button class="btn primary" :disabled="busy || plan.conflicts.length > 0" @click="applyPlan(false)">应用合并</button>
           <button class="btn" :disabled="busy" @click="applyPlan(true)">只应用无歧义部分</button>
         </div>
+      </div>
+    </div>
+
+    <div v-if="testResults.length" class="panel pad">
+      <div class="panel-title"><strong>目标连通性</strong></div>
+      <div v-for="row in testResults" :key="row.target" class="kv">
+        <span class="mono">{{ row.target }}</span>
+        <span :class="row.ok ? 'ok' : 'bad'">{{ row.ok ? '可达' : row.message }}</span>
+      </div>
+    </div>
+
+    <div v-if="mergeState && mergeState.pending.length" class="panel pad">
+      <div class="panel-title">
+        <strong>待解决冲突（{{ mergeState.pending.length }}）</strong>
+        <span class="muted">逐文件选择：保留我们的 / 保留他们的 / 两个都留</span>
+      </div>
+      <div v-for="path in mergeState.pending" :key="path" class="conflict-row">
+        <span class="mono">{{ path }}</span>
+        <span class="nowrap">
+          <button class="btn tiny" :disabled="busy" @click="resolvePath(path, 'ours')">我们的</button>
+          <button class="btn tiny" :disabled="busy" @click="resolvePath(path, 'theirs')">他们的</button>
+          <button class="btn tiny" :disabled="busy" @click="resolvePath(path, 'both')">都留</button>
+        </span>
+      </div>
+      <div class="form-row" style="margin-top: 10px">
+        <button class="btn primary" :disabled="busy" @click="finishMerge">完成合并</button>
       </div>
     </div>
 

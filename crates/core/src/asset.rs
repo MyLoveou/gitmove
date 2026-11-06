@@ -599,3 +599,44 @@ pub fn guard(root: &Path) -> CoreResult<Vec<GuardRow>> {
     }
     Ok(rows)
 }
+
+
+/// Validate repository access and credentials without writing anything.
+pub fn test_targets(root: &Path, only: Option<&str>) -> CoreResult<Vec<TargetResult>> {
+    let targets: Vec<Target> = load_targets(root)
+        .into_iter()
+        .filter(|target| only.map(|name| name == target.name).unwrap_or(true))
+        .collect();
+    let mut results = Vec::new();
+    for target in targets {
+        let outcome = run_restic(&target, root, &["cat", "config"]);
+        let result = match outcome {
+            Ok((true, _stdout, _stderr)) => TargetResult {
+                target: target.name,
+                ok: true,
+                snapshot_id: None,
+                files: 0,
+                bytes: 0,
+                message: "reachable".to_string(),
+            },
+            Ok((false, _stdout, stderr)) => TargetResult {
+                target: target.name,
+                ok: false,
+                snapshot_id: None,
+                files: 0,
+                bytes: 0,
+                message: stderr.trim().chars().take(300).collect(),
+            },
+            Err(err) => TargetResult {
+                target: target.name,
+                ok: false,
+                snapshot_id: None,
+                files: 0,
+                bytes: 0,
+                message: err.message,
+            },
+        };
+        results.push(result);
+    }
+    Ok(results)
+}

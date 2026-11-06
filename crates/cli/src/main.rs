@@ -153,6 +153,21 @@ enum WsAction {
     BranchSwitch { name: String },
     Merge { branch: String },
     Refs,
+    Add {
+        name: String,
+        #[arg(long)]
+        path: String,
+        #[arg(long, default_value = "editable")]
+        role: String,
+        #[arg(long, default_value = "vendor")]
+        strategy: String,
+        #[arg(long, default_value = "")]
+        source: String,
+        #[arg(long, default_value = "")]
+        pin: String,
+        #[arg(long, default_value = "")]
+        track: String,
+    },
     Sync {
         #[arg(long)]
         member: Option<String>,
@@ -206,6 +221,17 @@ enum AssetAction {
         force: bool,
     },
     Status,
+    Test {
+        #[arg(long)]
+        target: Option<String>,
+    },
+    Resolve {
+        path: String,
+        #[arg(long, default_value = "ours")]
+        take: String,
+    },
+    Continue,
+    State,
     Backup {
         #[arg(long)]
         target: Option<String>,
@@ -426,6 +452,10 @@ fn run(cli: &Cli, root: &Path) -> Result<Envelope<serde_json::Value>, CoreError>
                 Ok(success("gitmove_ws_merge", gitmove_core::workspace::merge(root, branch)?))
             }
             WsAction::Refs => Ok(success("gitmove_ws_refs", gitmove_core::workspace::refs(root)?)),
+            WsAction::Add { name, path, role, strategy, source, pin, track } => Ok(success(
+                "gitmove_ws_add",
+                gitmove_core::workspace::add_member(root, name, path, role, strategy, source, pin, track)?,
+            )),
             WsAction::Sync { member } => Ok(success(
                 "gitmove_ws_sync",
                 gitmove_core::workspace::sync(root, member.as_deref())?,
@@ -498,6 +528,22 @@ fn run(cli: &Cli, root: &Path) -> Result<Envelope<serde_json::Value>, CoreError>
                 gitmove_core::asset::prune(root, *keep_daily, *keep_weekly, *keep_monthly, *keep_last, *dry_run, target.as_deref())?,
             )),
             AssetAction::Guard => Ok(success("gitmove_asset_guard", gitmove_core::asset::guard(root)?)),
+            AssetAction::Test { target } => Ok(success(
+                "gitmove_asset_test",
+                gitmove_core::asset::test_targets(root, target.as_deref())?,
+            )),
+            AssetAction::Resolve { path, take } => Ok(success(
+                "gitmove_asset_resolve",
+                gitmove_core::merge::resolve(root, path, take)?,
+            )),
+            AssetAction::Continue => Ok(success(
+                "gitmove_asset_continue",
+                gitmove_core::merge::finish_merge(root)?,
+            )),
+            AssetAction::State => Ok(success(
+                "gitmove_asset_state",
+                gitmove_core::merge::read_state(root),
+            )),
             AssetAction::Status => Ok(success("gitmove_asset_status", gitmove_core::asset::status(root))),
             AssetAction::Backup { target } => {
                 let outcome = gitmove_core::asset::backup(root, target.as_deref(), None)?;
