@@ -9,6 +9,7 @@ import type {
   AssetTargetResult,
   AuditRow,
   AssetFile,
+  DiffPayload,
   BranchRefs,
   HookStatusPayload,
   MergeStatePayload,
@@ -404,6 +405,14 @@ export async function handleOp(request: Op): Promise<OpResult> {
         if (request.mode === 'merge') argv.push('--merge')
         if (request.mode === 'rebase') argv.push('--rebase')
         const data = await call<unknown>(argv)
+        return { ok: true, data }
+      }
+      case 'changes.diff': {
+        requireCore()
+        const argv = ['-C', request.workspace, 'diff', request.path]
+        if (request.member) argv.push('--member', request.member)
+        if (request.commit) argv.push('--commit', request.commit)
+        const data = await call<DiffPayload>(argv)
         return { ok: true, data }
       }
       case 'changes.list': {

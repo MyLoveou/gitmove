@@ -9,6 +9,7 @@ pub mod config;
 pub mod contribute;
 pub mod audit;
 pub mod deps;
+pub mod diff;
 pub mod error;
 pub mod git;
 pub mod json;

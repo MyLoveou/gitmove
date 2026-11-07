@@ -963,3 +963,77 @@ tr.selected {
   border-bottom: 1px solid var(--border);
   font-size: 12px;
 }
+
+.mono.link { cursor: pointer; }
+.mono.link:hover { color: var(--accent); text-decoration: underline; }
+
+.diff-pre {
+  max-height: 420px;
+  overflow: auto;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre;
+}
+
+.palette-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(2, 6, 8, 0.55);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 14vh;
+  z-index: 50;
+}
+
+.palette {
+  width: 560px;
+  max-width: 92vw;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+  overflow: hidden;
+}
+
+.palette-input {
+  width: 100%;
+  padding: 14px 16px;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+  font-size: 14px;
+  outline: none;
+}
+
+.palette-list {
+  max-height: 320px;
+  overflow: auto;
+}
+
+.palette-item {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 16px;
+  background: transparent;
+  border: 0;
+  color: var(--text-dim);
+  font-size: 13px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.palette-item:hover,
+.palette-item.active {
+  background: rgba(47, 215, 196, 0.10);
+  color: var(--text);
+}

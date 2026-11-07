@@ -54,6 +54,13 @@ enum Command {
         #[arg(long)]
         force: bool,
     },
+    Diff {
+        path: String,
+        #[arg(long)]
+        member: Option<String>,
+        #[arg(long)]
+        commit: Option<String>,
+    },
     Render {
         #[arg(long)]
         spec_root: String,
@@ -538,6 +545,13 @@ fn run(cli: &Cli, root: &Path) -> Result<Envelope<serde_json::Value>, CoreError>
             "gitmove_checkout",
             gitmove_core::revision::checkout(root, *id, *force)?,
         )),
+        Command::Diff { path, member, commit } => {
+            let payload = match commit {
+                Some(sha) => gitmove_core::diff::commit_diff(root, member.as_deref(), sha, path)?,
+                None => gitmove_core::diff::working(root, member.as_deref(), path)?,
+            };
+            Ok(success("gitmove_diff", payload))
+        }
         Command::Render { spec_root, project, target, dry_run, force } => {
             let target_path = target.clone().map(std::path::PathBuf::from).unwrap_or_else(|| root.to_path_buf());
             Ok(success(

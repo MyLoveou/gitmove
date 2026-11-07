@@ -133,6 +133,14 @@ export interface HookStatusPayload {
   scripts: { repo: string; event: string; text: string }[]
 }
 
+export interface DiffPayload {
+  member: string
+  path: string
+  diff: string
+  untracked: boolean
+  truncated: boolean
+}
+
 export interface AssetFile {
   path: string
   size: number
@@ -263,6 +271,7 @@ export type Op =
   | { op: 'update.state' }
   | { op: 'open.workspace'; workspace: string }
   | { op: 'changes.list'; workspace: string }
+  | { op: 'changes.diff'; workspace: string; member?: string; path: string; commit?: string }
   | { op: 'changes.discard'; workspace: string; selections: { member: string; path: string }[] }
   | { op: 'rev.commitPaths'; workspace: string; message: string; selections: { member: string; path: string }[] }
   | { op: 'rev.rebuild'; workspace: string }

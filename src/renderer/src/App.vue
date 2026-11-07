@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
-import { RouterLink, RouterView, useRoute } from 'vue-router'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 
 import { useWorkspaceStore } from './stores/workspace'
 
 const store = useWorkspaceStore()
 const route = useRoute()
+const router = useRouter()
 
 const nav = [
   { label: '总览', to: '/' },
@@ -24,8 +25,67 @@ const statusText = computed(() => {
   return `${store.projects.length} 个项目 · ${store.errors} 错误 · ${store.warns} 警告`
 })
 
+const paletteOpen = ref(false)
+const paletteQuery = ref('')
+const paletteIndex = ref(0)
+
+const paletteItems = computed(() => {
+  const base = [
+    ...nav.map((item) => ({ label: item.label, hint: '页面', run: () => void router.push(item.to) })),
+    { label: '刷新工作区', hint: '动作', run: () => void store.refreshWorkspace() },
+    { label: '从 git 历史重建索引', hint: '动作', run: () => void store.rebuildIndex() },
+    { label: '打开日志目录', hint: '动作', run: () => void window.gitmove.invoke({ op: 'open.logs' }) },
+    { label: '检查更新', hint: '动作', run: () => void window.gitmove.invoke({ op: 'update.check' }) }
+  ]
+  const keyword = paletteQuery.value.trim().toLowerCase()
+  return keyword
+    ? base.filter((item) => item.label.toLowerCase().includes(keyword) || item.hint.includes(keyword))
+    : base
+})
+
+function openPalette() {
+  paletteOpen.value = true
+  paletteQuery.value = ''
+  paletteIndex.value = 0
+}
+
+function closePalette() {
+  paletteOpen.value = false
+}
+
+function runPaletteItem(item: { run: () => void }) {
+  closePalette()
+  item.run()
+}
+
+function onKeydown(event: KeyboardEvent) {
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+    event.preventDefault()
+    openPalette()
+    return
+  }
+  if (!paletteOpen.value) return
+  if (event.key === 'Escape') {
+    closePalette()
+  } else if (event.key === 'ArrowDown') {
+    event.preventDefault()
+    paletteIndex.value = (paletteIndex.value + 1) % Math.max(1, paletteItems.value.length)
+  } else if (event.key === 'ArrowUp') {
+    event.preventDefault()
+    paletteIndex.value = (paletteIndex.value - 1 + paletteItems.value.length) % Math.max(1, paletteItems.value.length)
+  } else if (event.key === 'Enter') {
+    const item = paletteItems.value[paletteIndex.value]
+    if (item) runPaletteItem(item)
+  }
+}
+
 onMounted(() => {
   void store.bootstrap()
+  window.addEventListener('keydown', onKeydown)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('keydown', onKeydown)
 })
 </script>
 
@@ -71,5 +131,24 @@ onMounted(() => {
       <span class="spacer"></span>
       <span class="mono">{{ store.info ? `app ${store.info.version}` : '' }}</span>
     </footer>
+  </div>
+
+  <div v-if="paletteOpen" class="palette-backdrop" @click.self="closePalette">
+    <div class="palette">
+      <input v-model="paletteQuery" class="palette-input" placeholder="跳转页面或执行动作（Esc 关闭）" autofocus @input="paletteIndex = 0" />
+      <div class="palette-list">
+        <button
+          v-for="(item, index) in paletteItems"
+          :key="item.label"
+          class="palette-item"
+          :class="{ active: index === paletteIndex }"
+          @click="runPaletteItem(item)"
+        >
+          <span>{{ item.label }}</span>
+          <span class="muted">{{ item.hint }}</span>
+        </button>
+        <div v-if="!paletteItems.length" class="muted" style="padding: 10px 12px">没有匹配项</div>
+      </div>
+    </div>
   </div>
 </template>

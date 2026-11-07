@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 
-import type { ChangeRow } from '../../../shared/protocol'
+import type { ChangeRow, DiffPayload } from '../../../shared/protocol'
 import { useWorkspaceStore } from '../stores/workspace'
 
 const store = useWorkspaceStore()
@@ -9,6 +9,9 @@ const rows = ref<ChangeRow[]>([])
 const selected = ref<Record<string, boolean>>({})
 const message = ref('')
 const busy = ref(false)
+const error = ref('')
+const diff = ref<DiffPayload | null>(null)
+const diffLoading = ref(false)
 
 const groups = computed(() => {
   const map = new Map<string, ChangeRow[]>()
@@ -57,6 +60,7 @@ async function load() {
   try {
     rows.value = await invoke<ChangeRow[]>({ op: 'changes.list', workspace: store.currentWorkspace })
     selected.value = {}
+    diff.value = null
   } catch (err) {
     store.flash('bad', (err as Error).message)
   } finally {
@@ -68,6 +72,22 @@ function toggleAll(value: boolean) {
   const next: Record<string, boolean> = {}
   for (const row of rows.value) next[key(row)] = value
   selected.value = next
+}
+
+async function loadDiff(row: ChangeRow) {
+  diffLoading.value = true
+  try {
+    diff.value = await invoke<DiffPayload>({
+      op: 'changes.diff',
+      workspace: store.currentWorkspace,
+      member: row.member,
+      path: row.path
+    })
+  } catch (err) {
+    error.value = (err as Error).message
+  } finally {
+    diffLoading.value = false
+  }
 }
 
 async function commitSelected() {
@@ -162,10 +182,19 @@ watch(
           <tr v-for="row in group.items" :key="key(row)">
             <td><input v-model="selected[key(row)]" type="checkbox" /></td>
             <td class="mono dim">{{ codeLabel(row.code) }}</td>
-            <td class="mono">{{ row.path }}</td>
+            <td class="mono link" @click="loadDiff(row)">{{ row.path }}</td>
           </tr>
         </tbody>
       </table>
+    </div>
+
+    <div v-if="diff" class="panel pad">
+      <div class="panel-title">
+        <strong>差异</strong>
+        <span class="muted mono">{{ diff.member }}:{{ diff.path }}{{ diff.untracked ? ' · 未跟踪' : '' }}{{ diff.truncated ? ' · 已截断' : '' }}</span>
+        <button class="btn tiny" @click="diff = null">关闭</button>
+      </div>
+      <pre class="diff-pre">{{ diff.diff || '（无差异内容）' }}</pre>
     </div>
 
     <div v-if="!rows.length" class="panel"><div class="empty">{{ busy ? '正在读取…' : '工作区干净，没有待提交改动' }}</div></div>
