@@ -90,7 +90,8 @@ fn password_file_inside_repo_is_rejected() {
     std::fs::write(dir.join("workspace.toml"), manifest).unwrap();
     let outcome = asset::backup(&dir, None, None).unwrap();
     assert!(!outcome.results[0].ok);
-    assert!(outcome.results[0].message.contains("密码文件不得位于 Git 仓库内"));
+    let message = &outcome.results[0].message;
+    assert!(message.contains("密码文件不得位于 Git 仓库内"), "{message}");
     let _ = std::fs::remove_dir_all(&dir);
 }
 

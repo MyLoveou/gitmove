@@ -220,10 +220,12 @@ fn excludes(root: &Path) -> Vec<String> {
 }
 
 fn run_restic(target: &Target, root: &Path, args: &[&str]) -> CoreResult<(bool, String, String)> {
+    // 密码文件在仓库里必须先拒绝。否则没装 restic 的机器只会报 RESTIC_MISSING，把这条金样盖掉。
+    let password = password_file_arg(target, root)?;
     let restic = require_restic()?;
     let mut command = Command::new(restic);
     command.arg("-r").arg(&target.repo);
-    if let Some(file) = password_file_arg(target, root)? {
+    if let Some(file) = password {
         command.arg("--password-file").arg(file);
     } else if !target.password_env.trim().is_empty() {
         let value = std::env::var(&target.password_env).map_err(|_| {
