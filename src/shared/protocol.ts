@@ -196,9 +196,9 @@ export interface MergePlanPayload {
 export interface AppInfo {
   version: string
   platform: string
-  python: string
   sidecar: string
-  engine: 'rust' | 'python'
+  /** 发布物只有 Rust 核心，不再有 Python 引擎。 */
+  engine: 'rust'
   core: string | null
 }
 

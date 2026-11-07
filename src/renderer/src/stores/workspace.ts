@@ -5,9 +5,8 @@ import type { AuditRow, CommitOutcome, ProjectRow, RevisionRow, WorkspaceStatus 
 export interface AppInfo {
   version: string
   platform: string
-  python: string
   sidecar: string
-  engine: 'rust' | 'python'
+  engine: 'rust'
   core: string | null
 }
 
@@ -54,7 +53,7 @@ export const useWorkspaceStore = defineStore('workspace', {
     warns: (state) => state.audit.reduce((sum, row) => sum + row.warns, 0),
     totalBytes: (state) => state.audit.reduce((sum, row) => sum + row.tracked_bytes, 0),
     totalFiles: (state) => state.audit.reduce((sum, row) => sum + row.tracked_files, 0),
-    canCommit: (state) => state.info?.engine === 'rust'
+    canCommit: (state) => Boolean(state.info?.core)
   },
   actions: {
     flash(tone: 'ok' | 'bad', text: string) {

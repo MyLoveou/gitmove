@@ -104,7 +104,6 @@ export async function handleOp(request: Op): Promise<OpResult> {
         const info: AppInfo = {
           version: app.getVersion(),
           platform: `${process.platform}-${process.arch}`,
-          python: 'not required',
           sidecar: sidecarDescription(),
           engine: engineName(),
           core: coreBinary()
