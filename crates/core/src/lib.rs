@@ -20,6 +20,7 @@ pub mod policy;
 pub mod registry;
 pub mod revision;
 pub mod scan;
+pub mod spec;
 pub mod workspace;
 
 pub use error::{CoreError, CoreResult};

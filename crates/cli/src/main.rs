@@ -54,6 +54,18 @@ enum Command {
         #[arg(long)]
         force: bool,
     },
+    Render {
+        #[arg(long)]
+        spec_root: String,
+        #[arg(long)]
+        project: String,
+        #[arg(long)]
+        target: Option<String>,
+        #[arg(long)]
+        dry_run: bool,
+        #[arg(long)]
+        force: bool,
+    },
     Hook {
         #[command(subcommand)]
         action: HookAction,
@@ -517,6 +529,19 @@ fn run(cli: &Cli, root: &Path) -> Result<Envelope<serde_json::Value>, CoreError>
             "gitmove_checkout",
             gitmove_core::revision::checkout(root, *id, *force)?,
         )),
+        Command::Render { spec_root, project, target, dry_run, force } => {
+            let target_path = target.clone().map(std::path::PathBuf::from).unwrap_or_else(|| root.to_path_buf());
+            Ok(success(
+                "gitmove_render",
+                gitmove_core::spec::render(
+                    std::path::Path::new(spec_root),
+                    project,
+                    &target_path,
+                    *force,
+                    *dry_run,
+                )?,
+            ))
+        }
         Command::Hook { action } => match action {
             HookAction::Status => Ok(success("gitmove_hook_status", gitmove_core::hooks::status(root)?)),
             HookAction::Install { events, members } => Ok(success(
@@ -953,6 +978,99 @@ fn mcp_tools() -> Vec<serde_json::Value> {
             "inputSchema": { "type": "object", "properties": {} }
         }),
         serde_json::json!({
+            "name": "gitmove_ws_sync",
+            "description": "Check out workspace.lock.toml pins (write; needs confirm=true and GITMOVE_MCP_ALLOW_WRITE=1)",
+            "inputSchema": { "type": "object", "properties": { "member": { "type": "string" }, "confirm": { "type": "boolean" } } }
+        }),
+        serde_json::json!({
+            "name": "gitmove_ws_update",
+            "description": "Fetch and advance lock pins (write; needs confirm=true and GITMOVE_MCP_ALLOW_WRITE=1)",
+            "inputSchema": {
+                "type": "object",
+                "properties": { "member": { "type": "string" }, "to": { "type": "string" }, "confirm": { "type": "boolean" } }
+            }
+        }),
+        serde_json::json!({
+            "name": "gitmove_ws_add",
+            "description": "Add a workspace member: vendor/clone/link (write; needs confirm=true)",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "name": { "type": "string" }, "path": { "type": "string" },
+                    "role": { "type": "string" }, "strategy": { "type": "string" },
+                    "source": { "type": "string" }, "pin": { "type": "string" },
+                    "track": { "type": "string" }, "confirm": { "type": "boolean" }
+                },
+                "required": ["name", "path"]
+            }
+        }),
+        serde_json::json!({
+            "name": "gitmove_discard",
+            "description": "Discard selected changes (write; needs confirm=true)",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "paths": { "type": "array", "items": { "type": "string" } },
+                    "confirm": { "type": "boolean" }
+                },
+                "required": ["paths"]
+            }
+        }),
+        serde_json::json!({
+            "name": "gitmove_asset_test",
+            "description": "Test backup target reachability/credentials (read-only)",
+            "inputSchema": { "type": "object", "properties": { "target": { "type": "string" } } }
+        }),
+        serde_json::json!({
+            "name": "gitmove_asset_resolve",
+            "description": "Resolve one asset conflict: ours/theirs/both (write; needs confirm=true)",
+            "inputSchema": {
+                "type": "object",
+                "properties": { "path": { "type": "string" }, "take": { "type": "string" }, "confirm": { "type": "boolean" } },
+                "required": ["path", "take"]
+            }
+        }),
+        serde_json::json!({
+            "name": "gitmove_asset_continue",
+            "description": "Finish an asset merge once conflicts are resolved (write; needs confirm=true)",
+            "inputSchema": { "type": "object", "properties": { "confirm": { "type": "boolean" } } }
+        }),
+        serde_json::json!({
+            "name": "gitmove_graph",
+            "description": "Structured commit graph (read-only)",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "limit": { "type": "integer" }, "branch": { "type": "string" }, "all": { "type": "boolean" }
+                }
+            }
+        }),
+        serde_json::json!({
+            "name": "gitmove_hook_status",
+            "description": "Hook definitions and install matrix (read-only)",
+            "inputSchema": { "type": "object", "properties": {} }
+        }),
+        serde_json::json!({
+            "name": "gitmove_hook_install",
+            "description": "Install git hooks for selected events (write; needs confirm=true)",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "events": { "type": "array", "items": { "type": "string" } },
+                    "members": { "type": "boolean" }, "confirm": { "type": "boolean" }
+                }
+            }
+        }),
+        serde_json::json!({
+            "name": "gitmove_hook_run",
+            "description": "Run hooks for an event (executes commands; needs confirm=true)",
+            "inputSchema": {
+                "type": "object",
+                "properties": { "event": { "type": "string" }, "confirm": { "type": "boolean" } },
+                "required": ["event"]
+            }
+        }),
+        serde_json::json!({
             "name": "gitmove_commit",
             "description": "Create a revision (needs confirm=true and GITMOVE_MCP_ALLOW_WRITE=1)",
             "inputSchema": {
@@ -966,6 +1084,20 @@ fn mcp_tools() -> Vec<serde_json::Value> {
 
 fn mcp_text(value: serde_json::Value) -> serde_json::Value {
     serde_json::json!({ "content": [{ "type": "text", "text": value.to_string() }] })
+}
+
+fn confirm_required(allow_write: bool, args: &serde_json::Value) -> Result<(), (i32, String)> {
+    if !allow_write {
+        return Err((-32000, "MCP write disabled: set GITMOVE_MCP_ALLOW_WRITE=1".to_string()));
+    }
+    if !args.get("confirm").and_then(|value| value.as_bool()).unwrap_or(false) {
+        return Err((-32000, "confirm=true is required for write tools".to_string()));
+    }
+    Ok(())
+}
+
+fn arg_str<'a>(args: &'a serde_json::Value, key: &str) -> &'a str {
+    args.get(key).and_then(|value| value.as_str()).unwrap_or_default()
 }
 
 fn mcp_call(root: &Path, params: &serde_json::Value, allow_write: bool) -> Result<serde_json::Value, (i32, String)> {
@@ -1054,6 +1186,83 @@ fn mcp_call(root: &Path, params: &serde_json::Value, allow_write: bool) -> Resul
         "gitmove_sync_check" => gitmove_core::misc::check(root).map(|row| serde_json::json!(row)),
         "gitmove_config_export" => {
             gitmove_core::config::export(root).map(|text| serde_json::json!({ "toml": text }))
+        }
+        "gitmove_ws_sync" => {
+            confirm_required(allow_write, &args)?;
+            let member = args.get("member").and_then(|value| value.as_str());
+            gitmove_core::workspace::sync(root, member).map(|rows| serde_json::json!(rows))
+        }
+        "gitmove_ws_update" => {
+            confirm_required(allow_write, &args)?;
+            let member = args.get("member").and_then(|value| value.as_str());
+            let to = args.get("to").and_then(|value| value.as_str());
+            gitmove_core::workspace::update(root, member, to).map(|rows| serde_json::json!(rows))
+        }
+        "gitmove_ws_add" => {
+            confirm_required(allow_write, &args)?;
+            gitmove_core::workspace::add_member(
+                root,
+                arg_str(&args, "name"),
+                arg_str(&args, "path"),
+                if arg_str(&args, "role").is_empty() { "editable" } else { arg_str(&args, "role") },
+                if arg_str(&args, "strategy").is_empty() { "vendor" } else { arg_str(&args, "strategy") },
+                arg_str(&args, "source"),
+                arg_str(&args, "pin"),
+                arg_str(&args, "track"),
+            )
+            .map(|row| serde_json::json!(row))
+        }
+        "gitmove_discard" => {
+            confirm_required(allow_write, &args)?;
+            let paths: Vec<(String, String)> = args
+                .get("paths")
+                .and_then(|value| value.as_array())
+                .map(|items| {
+                    items
+                        .iter()
+                        .filter_map(|item| item.as_str())
+                        .map(|item| match item.split_once(':') {
+                            Some((member, path)) => (member.to_string(), path.to_string()),
+                            None => ("main".to_string(), item.to_string()),
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            gitmove_core::changes::discard(root, &paths).map(|rows| serde_json::json!(rows))
+        }
+        "gitmove_asset_test" => {
+            let target = args.get("target").and_then(|value| value.as_str());
+            gitmove_core::asset::test_targets(root, target).map(|rows| serde_json::json!(rows))
+        }
+        "gitmove_asset_resolve" => {
+            confirm_required(allow_write, &args)?;
+            gitmove_core::merge::resolve(root, arg_str(&args, "path"), arg_str(&args, "take"))
+                .map(|state| serde_json::json!(state))
+        }
+        "gitmove_asset_continue" => {
+            confirm_required(allow_write, &args)?;
+            gitmove_core::merge::finish_merge(root).map(|state| serde_json::json!(state))
+        }
+        "gitmove_graph" => {
+            let limit = args.get("limit").and_then(|value| value.as_u64()).unwrap_or(100) as u32;
+            let branch = args.get("branch").and_then(|value| value.as_str());
+            let all = args.get("all").and_then(|value| value.as_bool()).unwrap_or(false);
+            gitmove_core::misc::graph_nodes(root, limit, branch, all).map(|rows| serde_json::json!(rows))
+        }
+        "gitmove_hook_status" => gitmove_core::hooks::status(root).map(|row| serde_json::json!(row)),
+        "gitmove_hook_install" => {
+            confirm_required(allow_write, &args)?;
+            let events: Vec<String> = args
+                .get("events")
+                .and_then(|value| value.as_array())
+                .map(|items| items.iter().filter_map(|item| item.as_str().map(str::to_string)).collect())
+                .unwrap_or_default();
+            let members = args.get("members").and_then(|value| value.as_bool()).unwrap_or(false);
+            gitmove_core::hooks::install(root, &events, members).map(|row| serde_json::json!(row))
+        }
+        "gitmove_hook_run" => {
+            confirm_required(allow_write, &args)?;
+            gitmove_core::hooks::run(root, arg_str(&args, "event")).map(|rows| serde_json::json!(rows))
         }
         "gitmove_commit" => {
             if !allow_write {

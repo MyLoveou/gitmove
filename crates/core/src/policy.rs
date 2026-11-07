@@ -209,21 +209,41 @@ pub fn create_link(link_path: &Path, external: &Path, kind: &str) -> CoreResult<
     #[cfg(windows)]
     {
         if kind == "symlink" {
-            std::os::windows::fs::symlink_dir(external, link_path)
-                .map_err(|err| CoreError::new("LINK_CREATE_FAILED", format!("创建目录符号链接失败: {err}")))?;
+            std::os::windows::fs::symlink_dir(external, link_path).map_err(|err| {
+                CoreError::new("LINK_CREATE_FAILED", format!("创建目录符号链接失败: {err}"))
+                    .with_steps(vec!["Windows 创建 symlink 需要开发者模式或管理员权限".to_string()])
+            })?;
         } else {
-            let status = Command::new("cmd")
-                .args([
-                    "/C",
-                    "mklink",
-                    "/J",
-                    &link_path.to_string_lossy().to_string(),
-                    &external.to_string_lossy().to_string(),
-                ])
-                .status()
+            // mklink /J needs native separators and an existing target directory.
+            let link = link_path.to_string_lossy().replace('/', "\\");
+            let target = external.to_string_lossy().replace('/', "\\");
+            if !external.is_dir() {
+                return Err(CoreError::new(
+                    "LINK_TARGET_MISSING",
+                    format!("链接目标不存在或不是目录: {}", external.display()),
+                ));
+            }
+            let output = Command::new("cmd")
+                .args(["/C", "mklink", "/J", &link, &target])
+                .output()
                 .map_err(|err| CoreError::new("LINK_CREATE_FAILED", format!("无法运行 mklink: {err}")))?;
-            if !status.success() {
-                return Err(CoreError::new("LINK_CREATE_FAILED", "mklink /J 失败"));
+            if !output.status.success() {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                return Err(CoreError::new(
+                    "LINK_CREATE_FAILED",
+                    format!(
+                        "mklink /J 失败 (exit {:?}): {}{}",
+                        output.status.code(),
+                        stdout.trim(),
+                        stderr.trim()
+                    ),
+                )
+                .with_steps(vec![
+                    format!("link = {link}"),
+                    format!("target = {target}"),
+                    "确认目标目录存在且链接路径未被占用".to_string(),
+                ]));
             }
         }
     }
