@@ -230,12 +230,49 @@ export async function handleOp(request: Op): Promise<OpResult> {
       }
       case 'hook.install': {
         requireCore()
-        const data = await call<HookStatusPayload>(['-C', request.workspace, 'hook', 'install'])
+        const argv = ['-C', request.workspace, 'hook', 'install']
+        for (const event of request.events) argv.push('--event', event)
+        if (request.members) argv.push('--members')
+        const data = await call<HookStatusPayload>(argv)
         return { ok: true, data }
       }
       case 'hook.uninstall': {
         requireCore()
-        const data = await call<HookStatusPayload>(['-C', request.workspace, 'hook', 'uninstall'])
+        const argv = ['-C', request.workspace, 'hook', 'uninstall']
+        for (const event of request.events) argv.push('--event', event)
+        if (request.members) argv.push('--members')
+        const data = await call<HookStatusPayload>(argv)
+        return { ok: true, data }
+      }
+      case 'hook.add': {
+        requireCore()
+        const argv = ['-C', request.workspace, 'hook', 'add', '--event', request.event, '--command', request.command]
+        if (!request.blocking) argv.push('--advisory')
+        if (request.global) argv.push('--global')
+        const data = await call<HookStatusPayload>(argv)
+        return { ok: true, data }
+      }
+      case 'hook.remove': {
+        requireCore()
+        const argv = ['-C', request.workspace, 'hook', 'remove', '--event', request.event, '--command', request.command]
+        if (request.global) argv.push('--global')
+        const data = await call<HookStatusPayload>(argv)
+        return { ok: true, data }
+      }
+      case 'hook.toggle': {
+        requireCore()
+        const argv = [
+          '-C',
+          request.workspace,
+          'hook',
+          request.enabled ? 'enable' : 'disable',
+          '--event',
+          request.event,
+          '--command',
+          request.command
+        ]
+        if (request.global) argv.push('--global')
+        const data = await call<HookStatusPayload>(argv)
         return { ok: true, data }
       }
       case 'hook.run': {

@@ -126,9 +126,11 @@ export interface BranchRow {
 }
 
 export interface HookStatusPayload {
-  config: string
-  hooks: { event: string; command: string; blocking: boolean }[]
-  installed: string[]
+  global_config: string
+  workspace_config: string
+  hooks: { event: string; command: string; blocking: boolean; enabled: boolean; source: string }[]
+  repos: { repo: string; path: string; events: string[] }[]
+  scripts: { repo: string; event: string; text: string }[]
 }
 
 export interface MergeStatePayload {
@@ -231,9 +233,12 @@ export type Op =
   | { op: 'asset.resolve'; workspace: string; path: string; take: string }
   | { op: 'asset.continue'; workspace: string }
   | { op: 'hook.status'; workspace: string }
-  | { op: 'hook.install'; workspace: string }
-  | { op: 'hook.uninstall'; workspace: string }
+  | { op: 'hook.install'; workspace: string; events: string[]; members: boolean }
+  | { op: 'hook.uninstall'; workspace: string; events: string[]; members: boolean }
   | { op: 'hook.run'; workspace: string; event: string }
+  | { op: 'hook.add'; workspace: string; event: string; command: string; blocking: boolean; global: boolean }
+  | { op: 'hook.remove'; workspace: string; event: string; command: string; global: boolean }
+  | { op: 'hook.toggle'; workspace: string; event: string; command: string; enabled: boolean; global: boolean }
   | { op: 'graph'; workspace: string; limit?: number; branch?: string; all?: boolean }
   | { op: 'logs.read'; lines?: number }
   | { op: 'rev.importGit'; workspace: string; limit?: number }

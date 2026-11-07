@@ -149,8 +149,18 @@ enum RevAction {
 #[derive(Subcommand)]
 enum HookAction {
     Status,
-    Install,
-    Uninstall,
+    Install {
+        #[arg(long = "event")]
+        events: Vec<String>,
+        #[arg(long)]
+        members: bool,
+    },
+    Uninstall {
+        #[arg(long = "event")]
+        events: Vec<String>,
+        #[arg(long)]
+        members: bool,
+    },
     Run {
         event: String,
         #[arg(long)]
@@ -163,6 +173,32 @@ enum HookAction {
         command: String,
         #[arg(long)]
         advisory: bool,
+        #[arg(long)]
+        global: bool,
+    },
+    Remove {
+        #[arg(long)]
+        event: String,
+        #[arg(long)]
+        command: String,
+        #[arg(long)]
+        global: bool,
+    },
+    Enable {
+        #[arg(long)]
+        event: String,
+        #[arg(long)]
+        command: String,
+        #[arg(long)]
+        global: bool,
+    },
+    Disable {
+        #[arg(long)]
+        event: String,
+        #[arg(long)]
+        command: String,
+        #[arg(long)]
+        global: bool,
     },
 }
 
@@ -463,8 +499,14 @@ fn run(cli: &Cli, root: &Path) -> Result<Envelope<serde_json::Value>, CoreError>
         )),
         Command::Hook { action } => match action {
             HookAction::Status => Ok(success("gitmove_hook_status", gitmove_core::hooks::status(root)?)),
-            HookAction::Install => Ok(success("gitmove_hook_install", gitmove_core::hooks::install(root)?)),
-            HookAction::Uninstall => Ok(success("gitmove_hook_uninstall", gitmove_core::hooks::uninstall(root)?)),
+            HookAction::Install { events, members } => Ok(success(
+                "gitmove_hook_install",
+                gitmove_core::hooks::install(root, events, *members)?,
+            )),
+            HookAction::Uninstall { events, members } => Ok(success(
+                "gitmove_hook_uninstall",
+                gitmove_core::hooks::uninstall(root, events, *members)?,
+            )),
             HookAction::Run { event, no_block } => {
                 let results = if *no_block {
                     gitmove_core::hooks::run_advisory(root, event)?
@@ -473,9 +515,21 @@ fn run(cli: &Cli, root: &Path) -> Result<Envelope<serde_json::Value>, CoreError>
                 };
                 Ok(success("gitmove_hook_run", results))
             }
-            HookAction::Add { event, command, advisory } => {
-                gitmove_core::hooks::add(root, event, command, !*advisory)?;
+            HookAction::Add { event, command, advisory, global } => {
+                gitmove_core::hooks::add(root, event, command, !*advisory, *global)?;
                 Ok(success("gitmove_hook_add", gitmove_core::hooks::status(root)?))
+            }
+            HookAction::Remove { event, command, global } => {
+                gitmove_core::hooks::remove(root, event, command, *global)?;
+                Ok(success("gitmove_hook_remove", gitmove_core::hooks::status(root)?))
+            }
+            HookAction::Enable { event, command, global } => {
+                gitmove_core::hooks::set_enabled(root, event, command, true, *global)?;
+                Ok(success("gitmove_hook_enable", gitmove_core::hooks::status(root)?))
+            }
+            HookAction::Disable { event, command, global } => {
+                gitmove_core::hooks::set_enabled(root, event, command, false, *global)?;
+                Ok(success("gitmove_hook_disable", gitmove_core::hooks::status(root)?))
             }
         },
         Command::Workspace { action } => match action {

@@ -2,6 +2,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 
 import type { HookStatusPayload } from '../../../shared/protocol'
+import HooksPanel from '../components/HooksPanel.vue'
 import { useWorkspaceStore } from '../stores/workspace'
 
 const store = useWorkspaceStore()
@@ -28,7 +29,7 @@ async function loadHooks() {
 
 async function installHooks() {
   try {
-    hookStatus.value = await callOp<HookStatusPayload>({ op: 'hook.install', workspace: store.currentWorkspace })
+    hookStatus.value = await callOp<HookStatusPayload>({ op: 'hook.install', workspace: store.currentWorkspace, events: [], members: false })
     hookNotice.value = '已安装 pre-commit / pre-push 回调'
   } catch (error) {
     hookNotice.value = (error as Error).message
@@ -37,7 +38,7 @@ async function installHooks() {
 
 async function uninstallHooks() {
   try {
-    hookStatus.value = await callOp<HookStatusPayload>({ op: 'hook.uninstall', workspace: store.currentWorkspace })
+    hookStatus.value = await callOp<HookStatusPayload>({ op: 'hook.uninstall', workspace: store.currentWorkspace, events: [], members: false })
     hookNotice.value = '已移除 gitmove 钩子块'
   } catch (error) {
     hookNotice.value = (error as Error).message
@@ -213,25 +214,7 @@ watch(
       <pre class="graph-pre">{{ store.logText || '点击「刷新日志」读取 %APPDATA%\\gitmove\\logs\\main.log' }}</pre>
     </div>
 
-    <div class="panel pad">
-      <div class="panel-title">
-        <strong>Git Hooks</strong>
-        <span class="muted">安装后提交/推送时回调 gitmove（命令定义在 hooks.toml）</span>
-      </div>
-      <div v-if="hookNotice" class="banner ok">{{ hookNotice }}</div>
-      <div class="form-row">
-        <button class="btn ghost" @click="loadHooks()">刷新</button>
-        <button class="btn" @click="installHooks()">安装钩子</button>
-        <button class="btn ghost" @click="uninstallHooks()">移除钩子</button>
-      </div>
-      <div class="kv"><span class="muted">已安装</span><span class="mono">{{ hookStatus?.installed.join(', ') || '—' }}</span></div>
-      <div class="kv"><span class="muted">配置文件</span><span class="mono">{{ hookStatus?.config || '—' }}</span></div>
-      <div v-for="hook in hookStatus?.hooks ?? []" :key="hook.event + hook.command" class="kv">
-        <span class="mono">{{ hook.event }}{{ hook.blocking ? '' : ' (advisory)' }}</span>
-        <span class="mono dim">{{ hook.command }}</span>
-      </div>
-      <p class="hint">在 <code>.gitmove/hooks.toml</code> 里写 <code>[[hook]] event/command/blocking</code>，或用 <code>gitmove hook add --event pre-commit --command "npm test"</code>。</p>
-    </div>
+    <HooksPanel />
 
     <div class="panel pad">
       <div class="panel-title"><strong>运行时</strong></div>
