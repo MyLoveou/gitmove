@@ -5,6 +5,7 @@ import { BrowserWindow, Menu, app, ipcMain, shell } from 'electron'
 import { IPC_INVOKE, type Op } from '../shared/protocol'
 import { logDir, logEvent } from './logger'
 import { handleOp } from './operations'
+import { checkForUpdates, initUpdater } from './updater'
 
 const isSmoke = process.argv.includes('--smoke')
 
@@ -133,9 +134,18 @@ void app.whenReady().then(async () => {
     return
   }
 
-  createWindow()
+  const window = createWindow()
+  initUpdater(window)
+  if (app.isPackaged) {
+    setTimeout(() => {
+      void checkForUpdates()
+    }, 5000)
+  }
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+    if (BrowserWindow.getAllWindows().length === 0) {
+      const next = createWindow()
+      initUpdater(next)
+    }
   })
 })
 

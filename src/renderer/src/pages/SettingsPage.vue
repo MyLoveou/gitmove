@@ -9,6 +9,36 @@ const store = useWorkspaceStore()
 const info = computed(() => store.info)
 const preview = ref<{ type: string; text: string }[] | null>(null)
 const savedText = ref('')
+type UpdateState = { status: string; version?: string; notes?: string; percent?: number; message?: string }
+const updateState = ref<UpdateState | null>(null)
+const updateNotice = ref('')
+
+async function updateCall(request: Parameters<Window['gitmove']['invoke']>[0]): Promise<UpdateState> {
+  const result = (await window.gitmove.invoke(request)) as { ok: boolean; data?: UpdateState; error?: { message: string } }
+  if (!result.ok) throw new Error(result.error?.message ?? '失败')
+  return result.data as UpdateState
+}
+
+async function checkUpdate() {
+  updateNotice.value = ''
+  try {
+    updateState.value = await updateCall({ op: 'update.check' })
+  } catch (error) {
+    updateNotice.value = (error as Error).message
+  }
+}
+
+async function downloadUpdate() {
+  try {
+    updateState.value = await updateCall({ op: 'update.download' })
+  } catch (error) {
+    updateNotice.value = (error as Error).message
+  }
+}
+
+async function installUpdate() {
+  await window.gitmove.invoke({ op: 'update.install' })
+}
 const hookStatus = ref<HookStatusPayload | null>(null)
 
 async function callOp<T>(request: Parameters<Window['gitmove']['invoke']>[0]): Promise<T> {
@@ -115,6 +145,14 @@ function openLogs() {
 const lineNumbers = computed(() => store.fileText.split(/\r?\n/).map((_, index) => index + 1))
 
 onMounted(async () => {
+  window.gitmove.onUpdate((state) => {
+    updateState.value = state as UpdateState
+  })
+  try {
+    updateState.value = await updateCall({ op: 'update.state' })
+  } catch {
+    // ignore
+  }
   await store.loadFiles()
   savedText.value = store.fileText
   await loadHooks()

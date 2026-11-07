@@ -257,6 +257,10 @@ export type Op =
   | { op: 'file.read'; workspace: string; path: string }
   | { op: 'file.write'; workspace: string; path: string; text: string }
   | { op: 'open.logs' }
+  | { op: 'update.check' }
+  | { op: 'update.download' }
+  | { op: 'update.install' }
+  | { op: 'update.state' }
   | { op: 'open.workspace'; workspace: string }
   | { op: 'changes.list'; workspace: string }
   | { op: 'changes.discard'; workspace: string; selections: { member: string; path: string }[] }
@@ -274,3 +278,4 @@ export type Op =
     }
 
 export const IPC_INVOKE = 'gitmove:invoke'
+export const IPC_UPDATE = 'gitmove:update'

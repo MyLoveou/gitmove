@@ -99,7 +99,10 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: gitmove-windows-x64
-          path: dist/*.exe
+          path: |
+            dist/*.exe
+            dist/latest.yml
+            dist/*.blockmap
           if-no-files-found: error
 
   release:
@@ -123,10 +126,10 @@ jobs:
           git log -1 --pretty=%B > release-notes.md
           if gh release view "$tag" >/dev/null 2>&1; then
             echo "release exists, uploading assets (idempotent)"
-            gh release upload "$tag" artifacts/*.exe --clobber
+            gh release upload "$tag" artifacts/* --clobber
             gh release edit "$tag" --title "gitmove v${{ needs.verify.outputs.version }}" || true
           else
-            gh release create "$tag" artifacts/*.exe \
+            gh release create "$tag" artifacts/* \
               --title "gitmove v${{ needs.verify.outputs.version }}" \
               --notes-file release-notes.md
           fi

@@ -25,6 +25,7 @@ import type {
   WorkspaceStatus
 } from '../shared/protocol'
 import { logDir, logEvent, logFile } from './logger'
+import { checkForUpdates, downloadUpdate, getUpdateState, installUpdate } from './updater'
 import { coreBinary, engineName, runCli, sidecarDescription } from './sidecar'
 
 export interface OpResult<T = unknown> {
@@ -78,6 +79,21 @@ export async function handleOp(request: Op): Promise<OpResult> {
   const started = Date.now()
   try {
     switch (request.op) {
+      case 'update.check': {
+        const data = await checkForUpdates()
+        return { ok: true, data }
+      }
+      case 'update.download': {
+        const data = await downloadUpdate()
+        return { ok: true, data }
+      }
+      case 'update.install': {
+        installUpdate()
+        return { ok: true, data: { installing: true } }
+      }
+      case 'update.state': {
+        return { ok: true, data: getUpdateState() }
+      }
       case 'file.list': {
         return { ok: true, data: EDITABLE_FILES.map((file) => ({ path: file, exists: existsSync(join(request.workspace, file)) })) }
       }
