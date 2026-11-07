@@ -36,8 +36,10 @@ pub fn project_status(path: &Path) -> String {
     if !git::is_repo(path) {
         return "NOT_GIT".to_string();
     }
-    if !path.join(".git").join("gitmove.toml").is_file() && !path.join(".gitmove").join("config.toml").is_file()
-    {
+    let configured = path.join(".git").join("gitmove.toml").is_file()
+        || path.join(".gitmove").join("config.toml").is_file();
+    let indexed = path.join(".gitmove").join("index.sqlite").is_file();
+    if !configured && !indexed {
         return "NO_INIT".to_string();
     }
     "OK".to_string()
