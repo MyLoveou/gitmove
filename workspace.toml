@@ -1,0 +1,19 @@
+version = 1
+
+[workspace]
+name = "gitmove-v2"
+
+# 主仓必须显式声明。一旦存在 workspace.toml，加载器不再补隐含的 main。
+[[member]]
+name = "main"
+path = "."
+role = "main"
+strategy = "clone"
+
+[[member]]
+name = "spec"
+path = "spec"
+role = "editable"
+strategy = "vendor"
+source = "https://github.com/MyLoveou/agent-runtime-spec.git"
+track = "main"

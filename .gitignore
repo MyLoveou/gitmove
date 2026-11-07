@@ -19,6 +19,9 @@ __pycache__/
 *.sqlite-journal
 *.sqlite-wal
 
+# vendor 成员：缓存真仓在 ~/.gitmove/cache，工作区里只留 junction
+/spec/
+
 # 编辑器
 .vscode/
 .idea/

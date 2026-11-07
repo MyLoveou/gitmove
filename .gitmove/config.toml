@@ -1,0 +1,9 @@
+[depot]
+excludes = [
+    ".cursor",
+    ".claude",
+    ".agents",
+    ".opencode",
+    ".hermes",
+    "local/private",
+]

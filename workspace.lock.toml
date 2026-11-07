@@ -1,0 +1,7 @@
+version = 1
+generated = "2026-11-07T07:21:09.378962600+00:00"
+
+[[member]]
+name = "spec"
+commit = "9d82a215cde0f40b3d27b78f73d1dd50562c5778"
+ref = "origin/main"
