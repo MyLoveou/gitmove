@@ -161,7 +161,6 @@ watch(
 
       <pre v-if="fileDiff" class="diff-pre" style="margin-top: 10px">{{ fileDiff.diff || '（无差异内容）' }}</pre>
       <div v-if="filesBusy" class="muted">正在读取文件…</div>
-      </div>
     </div>
 
     <div class="panel commit-box">
