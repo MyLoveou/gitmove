@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 
-import type { AssetStatusPayload, MergePlanPayload, MergeStatePayload, AssetSnapshot } from '../../../shared/protocol'
+import type { AssetStatusPayload, AssetFile, MergePlanPayload, MergeStatePayload, AssetSnapshot } from '../../../shared/protocol'
 import { useWorkspaceStore } from '../stores/workspace'
 
 const store = useWorkspaceStore()
@@ -18,6 +18,78 @@ const theirs = ref('')
 const plan = ref<MergePlanPayload | null>(null)
 const mergeState = ref<MergeStatePayload | null>(null)
 const testResults = ref<{ target: string; ok: boolean; message: string }[]>([])
+const restoreSnapshot = ref('')
+const restoreFiles = ref<AssetFile[]>([])
+const restoreSelected = ref<Record<string, boolean>>({})
+const restoreFilter = ref('')
+const restoreTo = ref('')
+const restoreNotice = ref('')
+const restoreBusy = ref(false)
+
+const visibleFiles = computed(() => {
+  const keyword = restoreFilter.value.trim().toLowerCase()
+  const rows = keyword
+    ? restoreFiles.value.filter((file) => file.path.toLowerCase().includes(keyword))
+    : restoreFiles.value
+  return rows.slice(0, 400)
+})
+
+const selectedPaths = computed(() =>
+  restoreFiles.value.filter((file) => restoreSelected.value[file.path]).map((file) => file.path)
+)
+
+function formatSize(bytes: number): string {
+  if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(2)} GB`
+  if (bytes >= 1024 ** 2) return `${(bytes / 1024 ** 2).toFixed(1)} MB`
+  if (bytes >= 1024) return `${(bytes / 1024).toFixed(0)} KB`
+  return `${bytes} B`
+}
+
+async function loadSnapshotFiles() {
+  if (!restoreSnapshot.value) return
+  restoreBusy.value = true
+  restoreNotice.value = ''
+  try {
+    restoreFiles.value = await invoke<AssetFile[]>({
+      op: 'asset.files',
+      workspace: store.currentWorkspace,
+      snapshot: restoreSnapshot.value
+    })
+    restoreSelected.value = {}
+    restoreNotice.value = `已加载 ${restoreFiles.value.length} 个文件`
+  } catch (error) {
+    restoreNotice.value = (error as Error).message
+  } finally {
+    restoreBusy.value = false
+  }
+}
+
+function toggleAllFiles(value: boolean) {
+  const next: Record<string, boolean> = {}
+  for (const file of visibleFiles.value) next[file.path] = value
+  restoreSelected.value = { ...restoreSelected.value, ...next }
+}
+
+async function restoreSelectedPaths() {
+  if (!restoreSnapshot.value || !selectedPaths.value.length) return
+  if (!window.confirm(`恢复 ${selectedPaths.value.length} 个文件到 ${restoreTo.value || '工作区'}？同名文件会被覆盖。`)) return
+  restoreBusy.value = true
+  restoreNotice.value = ''
+  try {
+    await invoke({
+      op: 'asset.restore',
+      workspace: store.currentWorkspace,
+      snapshot: restoreSnapshot.value,
+      paths: selectedPaths.value,
+      to: restoreTo.value.trim() || undefined
+    })
+    restoreNotice.value = `已恢复 ${selectedPaths.value.length} 个文件`
+  } catch (error) {
+    restoreNotice.value = (error as Error).message
+  } finally {
+    restoreBusy.value = false
+  }
+}
 
 const snapshots = computed<AssetSnapshot[]>(() => status.value?.snapshots ?? [])
 
@@ -342,6 +414,46 @@ watch(
       <div class="form-row" style="margin-top: 10px">
         <button class="btn primary" :disabled="busy" @click="finishMerge">完成合并</button>
       </div>
+    </div>
+
+    <div class="panel pad">
+      <div class="panel-title"><strong>恢复</strong><span class="muted">选快照 → 勾文件 → 恢复（默认覆盖同名）</span></div>
+      <div v-if="restoreNotice" class="banner ok">{{ restoreNotice }}</div>
+      <div class="form-row">
+        <label class="field">
+          <span>快照</span>
+          <select v-model="restoreSnapshot" class="input">
+            <option value="">选择快照…</option>
+            <option v-for="snap in snapshots" :key="snap.snapshot_id" :value="snap.snapshot_id">
+              {{ snap.snapshot_id.slice(0, 8) }} · {{ snap.created_at.slice(0, 19).replace('T', ' ') }}
+            </option>
+          </select>
+        </label>
+        <button class="btn ghost" :disabled="restoreBusy || !restoreSnapshot" @click="loadSnapshotFiles">加载文件</button>
+        <label class="field" style="min-width: 280px"><span>目标目录（留空=工作区）</span>
+          <input v-model="restoreTo" class="input" placeholder="D:/restore-preview" />
+        </label>
+        <button class="btn primary" :disabled="restoreBusy || !selectedPaths.length" @click="restoreSelectedPaths">
+          恢复选中（{{ selectedPaths.length }}）
+        </button>
+      </div>
+      <div class="form-row" style="margin-top: 8px">
+        <label class="field" style="min-width: 280px"><span>过滤路径</span>
+          <input v-model="restoreFilter" class="input" placeholder="素材/第1集" />
+        </label>
+        <label class="check"><input type="checkbox" @change="toggleAllFiles(($event.target as HTMLInputElement).checked)" /> 全选当前列表</label>
+        <span class="muted">显示前 400 条（共 {{ restoreFiles.length }}）</span>
+      </div>
+      <table class="table" v-if="visibleFiles.length" style="margin-top: 10px">
+        <thead><tr><th style="width:36px"></th><th>路径</th><th style="width:100px">大小</th></tr></thead>
+        <tbody>
+          <tr v-for="file in visibleFiles" :key="file.path">
+            <td><input v-model="restoreSelected[file.path]" type="checkbox" /></td>
+            <td class="mono">{{ file.path }}</td>
+            <td class="mono dim">{{ formatSize(file.size) }}</td>
+          </tr>
+        </tbody>
+      </table>
     </div>
 
     <div class="panel">

@@ -133,6 +133,12 @@ export interface HookStatusPayload {
   scripts: { repo: string; event: string; text: string }[]
 }
 
+export interface AssetFile {
+  path: string
+  size: number
+  mtime: string
+}
+
 export interface MergeStatePayload {
   target: string
   base: string
@@ -232,6 +238,8 @@ export type Op =
   | { op: 'ws.add'; workspace: string; name: string; path: string; role: string; strategy: string; source: string; pin?: string; track?: string }
   | { op: 'ws.contribute'; workspace: string; member: string }
   | { op: 'asset.test'; workspace: string; target?: string }
+  | { op: 'asset.files'; workspace: string; snapshot: string; target?: string }
+  | { op: 'asset.restore'; workspace: string; snapshot: string; target?: string; paths: string[]; to?: string }
   | { op: 'asset.state'; workspace: string }
   | { op: 'asset.resolve'; workspace: string; path: string; take: string }
   | { op: 'asset.continue'; workspace: string }

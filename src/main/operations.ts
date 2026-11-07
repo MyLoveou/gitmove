@@ -8,6 +8,7 @@ import type {
   AssetStatusPayload,
   AssetTargetResult,
   AuditRow,
+  AssetFile,
   BranchRefs,
   HookStatusPayload,
   MergeStatePayload,
@@ -317,6 +318,22 @@ export async function handleOp(request: Op): Promise<OpResult> {
         const argv = ['-C', request.workspace, 'asset', 'test']
         if (request.target) argv.push('--target', request.target)
         const data = await call<unknown[]>(argv)
+        return { ok: true, data }
+      }
+      case 'asset.files': {
+        requireCore()
+        const argv = ['-C', request.workspace, 'asset', 'files', request.snapshot]
+        if (request.target) argv.push('--target', request.target)
+        const data = await call<AssetFile[]>(argv)
+        return { ok: true, data }
+      }
+      case 'asset.restore': {
+        requireCore()
+        const argv = ['-C', request.workspace, 'asset', 'restore', request.snapshot]
+        if (request.target) argv.push('--target', request.target)
+        for (const path of request.paths) argv.push('--path', path)
+        if (request.to) argv.push('--to', request.to)
+        const data = await call<unknown>(argv)
         return { ok: true, data }
       }
       case 'asset.state': {

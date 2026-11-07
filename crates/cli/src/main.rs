@@ -355,6 +355,15 @@ enum AssetAction {
         snapshot: String,
         #[arg(long)]
         target: Option<String>,
+        #[arg(long = "path")]
+        paths: Vec<String>,
+        #[arg(long)]
+        to: Option<String>,
+    },
+    Files {
+        snapshot: String,
+        #[arg(long)]
+        target: Option<String>,
     },
 }
 
@@ -703,10 +712,26 @@ fn run(cli: &Cli, root: &Path) -> Result<Envelope<serde_json::Value>, CoreError>
             AssetAction::Check { target } => {
                 Ok(success("gitmove_asset_check", gitmove_core::asset::check(root, target.as_deref())?))
             }
-            AssetAction::Restore { snapshot, target } => Ok(success(
+            AssetAction::Restore { snapshot, target, paths, to } => Ok(success(
                 "gitmove_asset_restore",
-                gitmove_core::asset::restore(root, snapshot, target.as_deref())?,
+                gitmove_core::asset::restore_paths(
+                    root,
+                    snapshot,
+                    target.as_deref(),
+                    paths,
+                    to.as_ref().map(std::path::Path::new),
+                )?,
             )),
+            AssetAction::Files { snapshot, target } => {
+                let name = target
+                    .clone()
+                    .or_else(|| gitmove_core::asset::load_targets(root).first().map(|item| item.name.clone()))
+                    .unwrap_or_default();
+                Ok(success(
+                    "gitmove_asset_files",
+                    gitmove_core::merge::list_files(root, &name, snapshot)?,
+                ))
+            }
         },
         Command::Graph { limit, branch, all, text } => {
             if *text {

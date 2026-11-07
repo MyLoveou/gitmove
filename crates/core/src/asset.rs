@@ -463,34 +463,60 @@ pub fn check(root: &Path, only: Option<&str>) -> CoreResult<Vec<TargetResult>> {
 }
 
 pub fn restore(root: &Path, snapshot: &str, only: Option<&str>) -> CoreResult<TargetResult> {
+    restore_paths(root, snapshot, only, &[], None)
+}
+
+/// Restore selected paths (empty = whole snapshot) into `destination` (default: workspace root).
+pub fn restore_paths(
+    root: &Path,
+    snapshot: &str,
+    only: Option<&str>,
+    paths: &[String],
+    destination: Option<&Path>,
+) -> CoreResult<TargetResult> {
     let targets = load_targets(root);
     let ordered: Vec<Target> = match only {
         Some(name) => targets.into_iter().filter(|target| target.name == name).collect(),
         None => targets.into_iter().filter(|target| target.enabled).collect(),
     };
+    let dest = destination.unwrap_or(root).to_string_lossy().to_string();
+    let mut last_error = String::new();
     for target in ordered {
-        let target_path = root.to_string_lossy().to_string();
-        match run_restic(&target, root, &["restore", snapshot, "--target", &target_path]) {
+        let mut args: Vec<String> = vec![
+            "restore".to_string(),
+            snapshot.to_string(),
+            "--target".to_string(),
+            dest.clone(),
+        ];
+        for path in paths {
+            args.push("--include".to_string());
+            args.push(format!("/{}", path.trim_start_matches('/')));
+        }
+        let borrowed: Vec<&str> = args.iter().map(String::as_str).collect();
+        match run_restic(&target, root, &borrowed) {
             Ok((true, _stdout, _stderr)) => {
                 return Ok(TargetResult {
                     target: target.name,
                     ok: true,
                     snapshot_id: Some(snapshot.to_string()),
-                    files: 0,
+                    files: paths.len() as i64,
                     bytes: 0,
-                    message: "restored".to_string(),
+                    message: if paths.is_empty() {
+                        format!("restored to {dest}")
+                    } else {
+                        format!("restored {} path(s) to {dest}", paths.len())
+                    },
                 })
             }
-            Ok((false, _stdout, _stderr)) => continue,
-            Err(_err) => continue,
+            Ok((false, _stdout, stderr)) => last_error = stderr,
+            Err(err) => last_error = err.message,
         }
     }
     Err(CoreError::new(
         "ASSET_RESTORE_FAILED",
-        format!("所有目标都无法恢复快照 {snapshot}"),
+        format!("所有目标都无法恢复快照 {snapshot}: {last_error}"),
     ))
 }
-
 
 #[derive(Debug, Clone, Serialize)]
 pub struct GuardRow {
