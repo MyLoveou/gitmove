@@ -54,6 +54,17 @@ enum Command {
         #[arg(long)]
         force: bool,
     },
+    Files {
+        sha: String,
+        #[arg(long)]
+        member: Option<String>,
+    },
+    SnapshotDiff {
+        a: String,
+        b: String,
+        #[arg(long)]
+        target: Option<String>,
+    },
     Diff {
         path: String,
         #[arg(long)]
@@ -544,6 +555,14 @@ fn run(cli: &Cli, root: &Path) -> Result<Envelope<serde_json::Value>, CoreError>
         Command::Checkout { id, force } => Ok(success(
             "gitmove_checkout",
             gitmove_core::revision::checkout(root, *id, *force)?,
+        )),
+        Command::Files { sha, member } => Ok(success(
+            "gitmove_commit_files",
+            gitmove_core::revision::commit_files(root, member.as_deref(), sha)?,
+        )),
+        Command::SnapshotDiff { a, b, target } => Ok(success(
+            "gitmove_asset_diff",
+            gitmove_core::asset::diff_snapshots(root, target.as_deref(), a, b)?,
         )),
         Command::Diff { path, member, commit } => {
             let payload = match commit {

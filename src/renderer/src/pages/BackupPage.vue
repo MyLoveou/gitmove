@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 
-import type { AssetStatusPayload, AssetFile, MergePlanPayload, MergeStatePayload, AssetSnapshot } from '../../../shared/protocol'
+import type { AssetStatusPayload, AssetFile, MergePlanPayload, MergeStatePayload, AssetSnapshot, SnapshotDiffRow } from '../../../shared/protocol'
 import { useWorkspaceStore } from '../stores/workspace'
 
 const store = useWorkspaceStore()
@@ -18,6 +18,10 @@ const theirs = ref('')
 const plan = ref<MergePlanPayload | null>(null)
 const mergeState = ref<MergeStatePayload | null>(null)
 const testResults = ref<{ target: string; ok: boolean; message: string }[]>([])
+const diffA = ref('')
+const diffB = ref('')
+const diffRows = ref<SnapshotDiffRow[]>([])
+const diffNotice = ref('')
 const restoreSnapshot = ref('')
 const restoreFiles = ref<AssetFile[]>([])
 const restoreSelected = ref<Record<string, boolean>>({})
@@ -43,6 +47,28 @@ function formatSize(bytes: number): string {
   if (bytes >= 1024 ** 2) return `${(bytes / 1024 ** 2).toFixed(1)} MB`
   if (bytes >= 1024) return `${(bytes / 1024).toFixed(0)} KB`
   return `${bytes} B`
+}
+
+async function compareSnapshots() {
+  if (!diffA.value || !diffB.value) {
+    diffNotice.value = '请选择两个快照'
+    return
+  }
+  busy.value = true
+  diffNotice.value = ''
+  try {
+    diffRows.value = await invoke<SnapshotDiffRow[]>({
+      op: 'asset.diff',
+      workspace: store.currentWorkspace,
+      a: diffA.value,
+      b: diffB.value
+    })
+    diffNotice.value = diffRows.value.length ? `共 ${diffRows.value.length} 处变化` : '两个快照内容一致'
+  } catch (error) {
+    diffNotice.value = (error as Error).message
+  } finally {
+    busy.value = false
+  }
 }
 
 async function loadSnapshotFiles() {
@@ -414,6 +440,35 @@ watch(
       <div class="form-row" style="margin-top: 10px">
         <button class="btn primary" :disabled="busy" @click="finishMerge">完成合并</button>
       </div>
+    </div>
+
+    <div class="panel pad">
+      <div class="panel-title"><strong>快照对比</strong><span class="muted">选择两个快照，查看新增/删除/修改</span></div>
+      <div v-if="diffNotice" class="banner ok">{{ diffNotice }}</div>
+      <div class="form-row">
+        <label class="field"><span>快照 A</span>
+          <select v-model="diffA" class="input">
+            <option value="">选择…</option>
+            <option v-for="snap in snapshots" :key="'a' + snap.snapshot_id" :value="snap.snapshot_id">{{ snap.snapshot_id.slice(0, 8) }} · {{ snap.created_at.slice(0, 10) }}</option>
+          </select>
+        </label>
+        <label class="field"><span>快照 B</span>
+          <select v-model="diffB" class="input">
+            <option value="">选择…</option>
+            <option v-for="snap in snapshots" :key="'b' + snap.snapshot_id" :value="snap.snapshot_id">{{ snap.snapshot_id.slice(0, 8) }} · {{ snap.created_at.slice(0, 10) }}</option>
+          </select>
+        </label>
+        <button class="btn" :disabled="busy" @click="compareSnapshots">对比</button>
+      </div>
+      <table v-if="diffRows.length" class="table" style="margin-top: 10px">
+        <thead><tr><th style="width:60px">变化</th><th>路径</th></tr></thead>
+        <tbody>
+          <tr v-for="row in diffRows.slice(0, 300)" :key="row.modifier + row.path">
+            <td class="mono">{{ row.modifier }}</td>
+            <td class="mono">{{ row.path }}</td>
+          </tr>
+        </tbody>
+      </table>
     </div>
 
     <div class="panel pad">

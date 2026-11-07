@@ -668,3 +668,44 @@ pub fn test_targets(root: &Path, only: Option<&str>) -> CoreResult<Vec<TargetRes
     }
     Ok(results)
 }
+
+
+#[derive(Debug, Clone, Serialize)]
+pub struct SnapshotDiffRow {
+    pub modifier: String,
+    pub path: String,
+}
+
+/// Compare two snapshots with restic diff (text output parsed).
+pub fn diff_snapshots(root: &Path, target_name: Option<&str>, a: &str, b: &str) -> CoreResult<Vec<SnapshotDiffRow>> {
+    let targets = load_targets(root);
+    let target = match target_name {
+        Some(name) => targets.into_iter().find(|item| item.name == name),
+        None => targets.into_iter().next(),
+    }
+    .ok_or_else(|| CoreError::new("ASSET_NO_TARGET", "没有配置备份目标"))?;
+    let (ok, stdout, stderr) = run_restic(&target, root, &["diff", a, b])?;
+    if !ok {
+        return Err(CoreError::new("ASSET_DIFF_FAILED", stderr));
+    }
+    let mut rows = Vec::new();
+    for line in stdout.lines() {
+        let trimmed = line.trim_end();
+        if trimmed.is_empty() || trimmed.starts_with("comparing") {
+            continue;
+        }
+        let modifier = trimmed.chars().next().unwrap_or(' ');
+        if !"+-MT".contains(modifier) {
+            continue;
+        }
+        let path = trimmed[1..].trim();
+        if path.is_empty() {
+            continue;
+        }
+        rows.push(SnapshotDiffRow {
+            modifier: modifier.to_string(),
+            path: path.to_string(),
+        });
+    }
+    Ok(rows)
+}

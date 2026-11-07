@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 
-import type { GraphNode } from '../../../shared/protocol'
+import type { CommitFile, DiffPayload, GraphNode } from '../../../shared/protocol'
 import GraphView from '../components/GraphView.vue'
 import { useWorkspaceStore } from '../stores/workspace'
 
@@ -11,6 +11,44 @@ const includeMembers = ref(false)
 const graphBranch = ref('')
 const graphAll = ref(false)
 const selectedSha = ref('')
+const commitFiles = ref<CommitFile[]>([])
+const fileDiff = ref<DiffPayload | null>(null)
+const filesBusy = ref(false)
+
+async function invokeOp<T>(request: Parameters<Window['gitmove']['invoke']>[0]): Promise<T> {
+  const result = (await window.gitmove.invoke(request)) as { ok: boolean; data?: T; error?: { message: string } }
+  if (!result.ok) throw new Error(result.error?.message ?? '失败')
+  return result.data as T
+}
+
+async function loadFiles(sha: string) {
+  commitFiles.value = []
+  fileDiff.value = null
+  if (!sha) return
+  filesBusy.value = true
+  try {
+    commitFiles.value = await invokeOp<CommitFile[]>({ op: 'rev.files', workspace: store.currentWorkspace, sha })
+  } catch (error) {
+    store.error = (error as Error).message
+  } finally {
+    filesBusy.value = false
+  }
+}
+
+async function loadFileDiff(path: string) {
+  if (!selectedSha.value) return
+  try {
+    fileDiff.value = await invokeOp<DiffPayload>({
+      op: 'changes.diff',
+      workspace: store.currentWorkspace,
+      member: 'main',
+      path,
+      commit: selectedSha.value
+    })
+  } catch (error) {
+    store.error = (error as Error).message
+  }
+}
 
 const rows = computed(() => [...store.revisions].sort((a, b) => b.id - a.id))
 const canCommit = computed(() => store.canCommit && message.value.trim().length > 0 && !store.busy)
@@ -45,6 +83,10 @@ async function copySha() {
 function short(commit: string | null): string {
   return commit ? commit.slice(0, 7) : '—'
 }
+
+watch(selectedSha, (sha) => {
+  void loadFiles(sha)
+})
 
 onMounted(async () => {
   await store.loadRefs()
@@ -107,6 +149,18 @@ watch(
         <div class="form-row" style="margin-top: 8px">
           <button class="btn ghost" @click="copySha">复制 SHA</button>
         </div>
+      </div>
+
+      <div v-if="selected && commitFiles.length" class="commit-files">
+        <div class="muted label">变更文件（{{ commitFiles.length }}）</div>
+        <div v-for="file in commitFiles" :key="file.path" class="commit-file" @click="loadFileDiff(file.path)">
+          <span class="mono badge">{{ file.status }}</span>
+          <span class="mono">{{ file.path }}</span>
+        </div>
+      </div>
+
+      <pre v-if="fileDiff" class="diff-pre" style="margin-top: 10px">{{ fileDiff.diff || '（无差异内容）' }}</pre>
+      <div v-if="filesBusy" class="muted">正在读取文件…</div>
       </div>
     </div>
 

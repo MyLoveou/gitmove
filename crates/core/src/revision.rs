@@ -9,6 +9,7 @@ use serde::Serialize;
 use crate::error::{CoreError, CoreResult};
 use crate::git;
 use crate::paths;
+use crate::workspace;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct RevisionMember {
@@ -555,4 +556,41 @@ pub fn import_git(workspace: &Path, limit: u32) -> CoreResult<usize> {
         count += 1;
     }
     Ok(count)
+}
+
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CommitFile {
+    pub status: String,
+    pub path: String,
+}
+
+/// Files changed by one commit in a repo (main by default).
+pub fn commit_files(root: &Path, member: Option<&str>, sha: &str) -> CoreResult<Vec<CommitFile>> {
+    let repo = match member {
+        Some(name) if !name.is_empty() && name != "main" => {
+            let (_, members, _) = workspace::load(root)?;
+            members
+                .into_iter()
+                .find(|item| item.name == name)
+                .map(|item| item.path)
+                .ok_or_else(|| CoreError::new("MEMBER_NOT_FOUND", format!("没有成员: {name}")))?
+        }
+        _ => root.to_path_buf(),
+    };
+    let raw = git::run(&repo, &["show", "--name-status", "--format=", sha])?;
+    let mut rows = Vec::new();
+    for line in raw.lines() {
+        let mut parts = line.split('\t');
+        let status = parts.next().unwrap_or_default().trim();
+        let path = parts.next().unwrap_or_default().trim();
+        if status.is_empty() || path.is_empty() {
+            continue;
+        }
+        rows.push(CommitFile {
+            status: status.to_string(),
+            path: path.to_string(),
+        });
+    }
+    Ok(rows)
 }
