@@ -82,12 +82,21 @@ pub fn pull(root: &Path, fetch: bool, mode: Option<&str>) -> CoreResult<serde_js
         })?,
     };
     let after = check(root)?;
+    // 拉取已经落地。阻塞型 post-pull 失败时仍要说明远端内容已经进来了。
+    let hooks = crate::hooks::run(root, "post-pull").map_err(|err| {
+        crate::error::CoreError::new(
+            err.code,
+            format!("拉取已完成，但 post-pull 钩子失败: {}", err.message),
+        )
+        .with_steps(err.steps)
+    })?;
     Ok(serde_json::json!({
         "pulled": true,
         "output": output.trim().chars().take(500).collect::<String>(),
         "ahead": after.ahead,
         "behind": after.behind,
         "upstream": after.upstream,
+        "hooks": hooks,
     }))
 }
 

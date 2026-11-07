@@ -220,7 +220,10 @@ export type Op =
   | { op: 'rev.checkout'; workspace: string; id: number; force?: boolean }
   | { op: 'dep.list'; workspace: string }
   | { op: 'ws.branches'; workspace: string }
-  | { op: 'ws.switch'; workspace: string; name: string }
+  | { op: 'ws.switch'; workspace: string; name: string; member?: string }
+  | { op: 'ws.branch.create'; workspace: string; name: string; member: string }
+  | { op: 'ws.branch.refs'; workspace: string; member: string }
+  | { op: 'member.commit'; workspace: string; member: string; message: string }
   | { op: 'sync.check'; workspace: string }
   | { op: 'sync.pull'; workspace: string; fetch?: boolean; mode?: 'merge' | 'rebase' }
   | { op: 'ws.refs'; workspace: string }

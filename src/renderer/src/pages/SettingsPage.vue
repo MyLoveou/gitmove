@@ -10,7 +10,6 @@ const info = computed(() => store.info)
 const preview = ref<{ type: string; text: string }[] | null>(null)
 const savedText = ref('')
 const hookStatus = ref<HookStatusPayload | null>(null)
-const hookNotice = ref('')
 
 async function callOp<T>(request: Parameters<Window['gitmove']['invoke']>[0]): Promise<T> {
   const result = (await window.gitmove.invoke(request)) as { ok: boolean; data?: T; error?: { message: string } }
@@ -23,25 +22,25 @@ async function loadHooks() {
   try {
     hookStatus.value = await callOp<HookStatusPayload>({ op: 'hook.status', workspace: store.currentWorkspace })
   } catch (error) {
-    hookNotice.value = (error as Error).message
+    store.flash('bad', (error as Error).message)
   }
 }
 
 async function installHooks() {
   try {
     hookStatus.value = await callOp<HookStatusPayload>({ op: 'hook.install', workspace: store.currentWorkspace, events: [], members: false })
-    hookNotice.value = '已安装 pre-commit / pre-push 回调'
+    store.flash('ok', '已安装 pre-commit / pre-push 回调')
   } catch (error) {
-    hookNotice.value = (error as Error).message
+    store.flash('bad', (error as Error).message)
   }
 }
 
 async function uninstallHooks() {
   try {
     hookStatus.value = await callOp<HookStatusPayload>({ op: 'hook.uninstall', workspace: store.currentWorkspace, events: [], members: false })
-    hookNotice.value = '已移除 gitmove 钩子块'
+    store.flash('ok', '已移除 gitmove 钩子块')
   } catch (error) {
-    hookNotice.value = (error as Error).message
+    store.flash('bad', (error as Error).message)
   }
 }
 
@@ -140,18 +139,17 @@ watch(
 
 <template>
   <section class="page">
-    <header class="page-head">
+    <header class="scale">
       <div>
-        <h1>设置</h1>
-        <p class="sub">配置文件（.gitignore / gitmove 配置 / workspace / lock）与运行时信息</p>
+        <div class="scale-kicker">配置</div>
+        <h1>{{ store.activeFile || '设置' }}</h1>
+        <p class="scale-read">
+          <span>{{ store.workspaceStatus?.name || '未选择' }}</span>
+          <span class="mono">{{ info?.sidecar || '核心未知' }}</span>
+        </p>
       </div>
-      <div class="actions">
-        <button class="btn ghost" @click="store.importGitHistory()">导入 git 历史</button>
-      </div>
+      <button class="btn primary" @click="requestSave">保存…</button>
     </header>
-
-    <div v-if="store.error" class="banner bad">{{ store.error }}</div>
-    <div v-if="store.notice" class="banner ok">{{ store.notice }}</div>
 
     <div class="panel pad">
       <div class="panel-title">
@@ -168,10 +166,8 @@ watch(
             </option>
           </select>
         </label>
-        <button class="btn primary" @click="requestSave">保存…</button>
         <button class="btn ghost" @click="loadSelected(store.activeFile)">重新加载</button>
         <button class="btn ghost" @click="openWorkspace">打开工作区目录</button>
-        <button class="btn ghost" @click="openLogs">打开日志目录</button>
       </div>
 
       <div class="editor">
@@ -205,19 +201,16 @@ watch(
       </div>
     </div>
 
-    <div class="panel pad">
-      <div class="panel-title">
-        <strong>日志</strong>
-        <button class="btn ghost" @click="store.loadLogs()">刷新日志</button>
-        <button class="btn ghost" @click="openLogs">打开日志目录</button>
+    <details class="fold">
+      <summary>日志、钩子与运行时</summary>
+      <div class="tool-row">
+        <button class="btn" @click="store.loadLogs()">刷新日志</button>
+        <button class="btn" @click="openLogs">打开日志目录</button>
+        <button class="btn" @click="store.importGitHistory()">导入 git 历史</button>
       </div>
-      <pre class="graph-pre">{{ store.logText || '点击「刷新日志」读取 %APPDATA%\\gitmove\\logs\\main.log' }}</pre>
-    </div>
-
-    <HooksPanel />
-
-    <div class="panel pad">
-      <div class="panel-title"><strong>运行时</strong></div>
+      <pre class="graph-pre">{{ store.logText || '还没有读取日志' }}</pre>
+      <HooksPanel />
+      <div class="panel-title" style="margin-top: 16px"><strong>运行时</strong></div>
       <table class="table">
         <tbody>
           <tr><th class="w180">应用版本</th><td class="mono">{{ info?.version ?? '—' }}</td></tr>
@@ -226,11 +219,6 @@ watch(
           <tr><th>当前工作区</th><td class="mono dim">{{ store.currentWorkspace || '—' }}</td></tr>
         </tbody>
       </table>
-    </div>
-
-    <p class="footnote">
-      日志：<code>%APPDATA%\gitmove\logs\main.log</code>（JSON lines）。<br />
-      「总览」的文件/体积只统计 git 跟踪内容；素材由「备份」页的资产快照管理。
-    </p>
+    </details>
   </section>
 </template>

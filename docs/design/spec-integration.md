@@ -14,10 +14,16 @@
 |------|------|
 | `.cursor/rules/` | 29 条规则（common / typescript / vue / frontend-vue + 入口规则） |
 | `.cursor/agents/` | 6 个 agent |
-| `.cursor/skills/` | 12 个 skill（含 scripts 与 templates） |
-| `.dsh/skills/` | 同 12 个 skill（DSH 只消费 skills） |
+| `.cursor/skills/` | 24 个 skill（含 scripts 与 templates）。2026-11-07 增补界面工艺：`baseline-ui`、`better-ui`、`better-layout`、`better-typography`、`fixing-accessibility`、`fixing-motion-performance`、`improve-ui`、`component-canvas`、`create-canvas`、`oil-ui` |
+| `.dsh/skills/` | 与 `.cursor/skills/` 同一份清单（DSH 只消费 skills） |
 
 `AGENTS.md` 与 `docs/` 保留项目自有内容，装配单 `entry` 为空，不从规范库覆盖。
+
+## 拉取后自动刷新
+
+`gitmove sync pull` 成功后会跑工作区钩子 `post-pull`（`.gitmove/hooks.toml`）。它执行 `scripts/refresh-runtime.ps1`：用成员 `spec` 里的装配单导出到本仓，**不加 `-Force`**。内容相同则跳过，内容不同则留下并在输出里提示。
+
+这个事件不是 Git 钩子文件。直接 `git pull` 不会刷新。规范库成员还没检出时脚本退出 0，不挡住已经完成的拉取。钩子用的是 `spec` 的当前检出，不会再去拉一遍规范库。
 
 ## 刷新（单向导出）
 

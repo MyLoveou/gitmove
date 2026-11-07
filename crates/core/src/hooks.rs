@@ -8,7 +8,10 @@ use crate::error::{CoreError, CoreResult};
 use crate::paths;
 use crate::workspace;
 
-pub const EVENTS: [&str; 3] = ["pre-commit", "post-commit", "pre-push"];
+/// `post-pull` 只由 `sync pull` 在拉取成功后调用。Git 没有这个钩子文件，
+/// 快进和变基也不会稳定地走 `post-merge`，所以不要把它写进 `.git/hooks`。
+pub const EVENTS: [&str; 4] = ["pre-commit", "post-commit", "pre-push", "post-pull"];
+const GIT_EVENTS: [&str; 3] = ["pre-commit", "post-commit", "pre-push"];
 const BEGIN: &str = "# >>> gitmove hooks >>>";
 const END: &str = "# <<< gitmove hooks <<<";
 
@@ -310,7 +313,7 @@ fn repos(root: &Path, members: bool) -> Vec<(String, PathBuf)> {
 }
 
 fn installed_events(repo: &Path) -> Vec<String> {
-    EVENTS
+    GIT_EVENTS
         .iter()
         .filter(|event| {
             std::fs::read_to_string(hook_file(repo, event))
@@ -350,6 +353,9 @@ pub fn install(root: &Path, events: &[String], members: bool) -> CoreResult<Hook
     };
     for (_, path) in repos(root, members) {
         for event in &chosen {
+            if !GIT_EVENTS.contains(&event.as_str()) {
+                continue;
+            }
             write_block(&path, event, &script_for(root, event))?;
         }
     }
@@ -358,9 +364,13 @@ pub fn install(root: &Path, events: &[String], members: bool) -> CoreResult<Hook
 
 pub fn uninstall(root: &Path, events: &[String], members: bool) -> CoreResult<HookStatus> {
     let chosen: Vec<String> = if events.is_empty() {
-        EVENTS.iter().map(|event| event.to_string()).collect()
+        GIT_EVENTS.iter().map(|event| event.to_string()).collect()
     } else {
-        events.to_vec()
+        events
+            .iter()
+            .filter(|event| GIT_EVENTS.contains(&event.as_str()))
+            .cloned()
+            .collect()
     };
     for (_, path) in repos(root, members) {
         for event in &chosen {
@@ -380,7 +390,7 @@ pub fn status(root: &Path) -> CoreResult<HookStatus> {
             events: installed_events(&path),
         });
         if name == "main" {
-            for event in EVENTS {
+            for event in GIT_EVENTS {
                 scripts.push(ScriptPreview {
                     repo: name.clone(),
                     event: event.to_string(),

@@ -243,17 +243,33 @@ pub struct MergeOutcome {
     pub message: String,
 }
 
-/// Create the branch in every member repository (idempotent).
-pub fn branch_create(root: &Path, name: &str) -> CoreResult<Vec<BranchRow>> {
+/// Create a branch. Without `only`, every member gets the same name (existing branches are checked out).
+/// With `only`, just that member is changed, and an existing branch is refused.
+pub fn branch_create(root: &Path, name: &str, only: Option<&str>) -> CoreResult<Vec<BranchRow>> {
+    let name = name.trim();
+    if name.is_empty() || name.contains(char::is_whitespace) {
+        return Err(CoreError::new("BRANCH_INVALID", "分支名不能为空或含空白"));
+    }
+    if let Some(member_name) = only {
+        let member = require_member(root, member_name)?;
+        reject_readonly(&member)?;
+        ensure_repo(&member)?;
+        let qualified = format!("refs/heads/{name}");
+        if git::run_allow_fail(&member.path, &["show-ref", "--verify", "--quiet", &qualified]).is_some() {
+            return Err(CoreError::new("BRANCH_EXISTS", format!("分支已存在: {name}"))
+                .with_steps(vec!["改用「使用」切换到这个分支".to_string()]));
+        }
+        git::run(&member.path, &["checkout", "-b", name])?;
+        return Ok(vec![BranchRow { member: member.name, branch: name.to_string() }]);
+    }
+
     let (_, members, _) = load(root)?;
     let mut rows = Vec::new();
     for member in members {
         if !member.path.exists() || !git::is_repo(&member.path) {
             continue;
         }
-        let current = git::run_allow_fail(&member.path, &["rev-parse", "--abbrev-ref", "HEAD"])
-            .map(|value| value.trim().to_string())
-            .unwrap_or_default();
+        let current = current_branch(&member.path);
         if current != name {
             let exists = git::run_allow_fail(&member.path, &["rev-parse", "--verify", name]).is_some();
             let args = if exists { vec!["checkout", name] } else { vec!["checkout", "-b", name] };
@@ -278,8 +294,31 @@ pub fn branch_list(root: &Path) -> CoreResult<Vec<BranchRow>> {
         .collect())
 }
 
-/// Switch every member to `name`; refuses when a member has uncommitted changes.
-pub fn branch_switch(root: &Path, name: &str) -> CoreResult<Vec<BranchRow>> {
+/// Switch branches. Without `only`, every member must be clean and moves together.
+/// With `only`, a dirty tree on that member refuses the switch and lists paths.
+pub fn branch_switch(root: &Path, name: &str, only: Option<&str>) -> CoreResult<Vec<BranchRow>> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err(CoreError::new("BRANCH_INVALID", "分支名不能为空"));
+    }
+    if let Some(member_name) = only {
+        let member = require_member(root, member_name)?;
+        reject_readonly(&member)?;
+        ensure_repo(&member)?;
+        if git::is_dirty(&member.path) {
+            let paths = git::dirty_paths(&member.path);
+            return Err(CoreError::new(
+                "WORKSPACE_DIRTY",
+                format!("成员 {} 有未提交改动: {}", member.name, paths.join(", ")),
+            ));
+        }
+        git::run(&member.path, &["checkout", name])?;
+        return Ok(vec![BranchRow {
+            member: member.name,
+            branch: current_branch(&member.path),
+        }]);
+    }
+
     let (_, members, _) = load(root)?;
     let dirty: Vec<String> = members
         .iter()
@@ -295,6 +334,77 @@ pub fn branch_switch(root: &Path, name: &str) -> CoreResult<Vec<BranchRow>> {
         }
     }
     branch_list(root)
+}
+
+/// Local branch names of one member, for the per-member picker.
+pub fn member_branches(root: &Path, name: &str) -> CoreResult<Vec<String>> {
+    let member = require_member(root, name)?;
+    ensure_repo(&member)?;
+    let out = git::run(&member.path, &["for-each-ref", "--format=%(refname:short)", "refs/heads"])?;
+    Ok(out.lines().map(|line| line.trim().to_string()).filter(|line| !line.is_empty()).collect())
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct MemberCommit {
+    pub member: String,
+    pub commit: String,
+    pub branch: String,
+}
+
+/// Commit one member repository. Does not create a workspace Revision.
+pub fn member_commit(root: &Path, name: &str, message: &str) -> CoreResult<MemberCommit> {
+    let message = message.trim();
+    if message.is_empty() {
+        return Err(CoreError::new("MEMBER_MESSAGE_REQUIRED", "提交说明不能为空"));
+    }
+    let member = require_member(root, name)?;
+    reject_readonly(&member)?;
+    ensure_repo(&member)?;
+    git::run(&member.path, &["add", "-A"])?;
+    let status = git::run_allow_fail(&member.path, &["status", "--porcelain"]).unwrap_or_default();
+    if status.trim().is_empty() {
+        return Err(CoreError::new("NOTHING_TO_COMMIT", "没有可提交的改动"));
+    }
+    git::run(&member.path, &["commit", "-m", message])?;
+    let commit = git::head(&member.path).ok_or_else(|| CoreError::new("GIT_FAILED", "提交后无法读取 HEAD"))?;
+    Ok(MemberCommit {
+        member: member.name,
+        commit,
+        branch: current_branch(&member.path),
+    })
+}
+
+fn require_member(root: &Path, name: &str) -> CoreResult<Member> {
+    let (_, members, _) = load(root)?;
+    members
+        .into_iter()
+        .find(|member| member.name == name)
+        .ok_or_else(|| CoreError::new("MEMBER_NOT_FOUND", format!("工作区没有成员: {name}")))
+}
+
+fn reject_readonly(member: &Member) -> CoreResult<()> {
+    if member.role == "readonly" {
+        Err(CoreError::new(
+            "MEMBER_READONLY",
+            format!("成员 {} 是只读的，不能改分支或提交", member.name),
+        ))
+    } else {
+        Ok(())
+    }
+}
+
+fn ensure_repo(member: &Member) -> CoreResult<()> {
+    if member.path.exists() && git::is_repo(&member.path) {
+        Ok(())
+    } else {
+        Err(CoreError::new("MEMBER_MISSING", format!("成员不在磁盘上: {}", member.name)))
+    }
+}
+
+fn current_branch(path: &Path) -> String {
+    git::run_allow_fail(path, &["rev-parse", "--abbrev-ref", "HEAD"])
+        .map(|value| value.trim().to_string())
+        .unwrap_or_default()
 }
 
 /// Merge `name` into every member; conflicts stop the merge per member (git semantics).

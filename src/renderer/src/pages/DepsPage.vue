@@ -1,13 +1,13 @@
 <script setup lang="ts">
-import { onMounted, watch, ref } from 'vue'
+import { computed, onMounted, watch, ref } from 'vue'
 
 import type { DepRow } from '../../../shared/protocol'
 import { useWorkspaceStore } from '../stores/workspace'
 
 const store = useWorkspaceStore()
 const rows = ref<DepRow[]>([])
+const offCount = computed(() => rows.value.filter((row) => row.drift || !row.in_effect).length)
 const busy = ref(false)
-const error = ref('')
 
 async function invoke<T>(request: Parameters<Window['gitmove']['invoke']>[0]): Promise<T> {
   const result = (await window.gitmove.invoke(request)) as { ok: boolean; data?: T; error?: { message: string } }
@@ -18,11 +18,10 @@ async function invoke<T>(request: Parameters<Window['gitmove']['invoke']>[0]): P
 async function load() {
   if (!store.currentWorkspace) return
   busy.value = true
-  error.value = ''
   try {
     rows.value = await invoke<DepRow[]>({ op: 'dep.list', workspace: store.currentWorkspace })
   } catch (err) {
-    error.value = (err as Error).message
+    store.flash('bad', (err as Error).message)
   } finally {
     busy.value = false
   }
@@ -41,24 +40,24 @@ watch(
 
 <template>
   <section class="page">
-    <header class="page-head">
+    <header class="scale">
       <div>
-        <h1>依赖</h1>
-        <p class="sub">来自项目根 <code>project.lock.toml</code> 的声明与实装版本</p>
+        <div class="scale-kicker">依赖</div>
+        <h1>{{ store.workspaceStatus?.name || '依赖' }}</h1>
+        <p class="scale-read">
+          <span>{{ rows.length }} 项</span>
+          <span>{{ offCount ? `${offCount} 项偏离` : '声明与实装一致' }}</span>
+        </p>
       </div>
-      <div class="actions">
-        <button class="btn ghost" :disabled="busy" @click="load">刷新</button>
-      </div>
+      <button class="btn ghost" :disabled="busy" @click="load">刷新</button>
     </header>
 
-    <div v-if="error" class="banner bad">{{ error }}</div>
-
-    <div class="banner info">
-      数据来自项目根的 <code>project.lock.toml</code>：
-      <code>kind</code>（类型）与 <code>ref</code>/<code>commit</code> 由项目声明；
-      <code>installed[].match=false</code> 表示实装版本与声明不一致 → <strong>漂移</strong>；
-      依赖的 <code>status</code> 不是 ok 且项目里没有任何产物 → <strong>未生效</strong>（声明了但还没落地）。
-    </div>
+    <details class="fold">
+      <summary>怎么读这张表</summary>
+      <p class="hint">
+        数据来自项目根的 <code>project.lock.toml</code>。实装版本与声明不一致是漂移；声明了但没有产物是未生效。
+      </p>
+    </details>
 
     <div class="panel">
       <table class="table">

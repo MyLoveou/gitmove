@@ -32,6 +32,23 @@ alwaysApply: true
 | 跨会话续作 | `facts.md` + `decisions.md`；任务用 `project-spec` handoff；复杂循环可叠加 `dynamic-workflow-mode` |
 | 剧本总览 | `workflows/` |
 
+## 界面工艺
+
+先定观感仍是 `project-spec-design`，只改样式的门禁仍是 `project-spec-style`。命中下面的场景先读对应 Skill：
+
+| 场景 | 入口 |
+|------|------|
+| 快速收拾、防俗套 | `baseline-ui` |
+| 键盘、可访问名称、焦点、对比度 | `fixing-accessibility` |
+| 动效卡顿、滚动动画、模糊 | `fixing-motion-performance` |
+| 按本产品证据审计界面，只出计划 | `improve-ui` |
+| 圆角、阴影、图标、微交互 | `better-ui` |
+| 分组、对齐、响应式结构 | `better-layout` |
+| 字号、行高、换行、截断 | `better-typography` |
+| 查看已有组件的变体 | `component-canvas` |
+| 并排比较、再试一版 | `create-canvas` |
+| 新界面定方向、几种风格要真的不一样 | `oil-ui`（确认前仍停在 `project-spec-design`） |
+
 ## 新能力串联
 
 `project-spec`：L1 →（复杂）L2 设计确认 → L3 → apply（含 tests.md）→ `code-review-gate` → `verification-gate`

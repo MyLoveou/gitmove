@@ -48,6 +48,8 @@ origin: 项目规范
 
 吃不准时：会改 API/表/主流程/模块边界 → 本 Skill（复杂先 L2）；只是坏了 → fix；只是难看 → style；只要像素方向 → `project-spec-design`。
 
+界面工艺不另开全量 propose。定方向仍是 `project-spec-design`，新界面的方向方法用 `oil-ui`，只改样式仍是 `project-spec-style`。约束见 `baseline-ui`、`better-layout`、`better-typography`、`better-ui`、`fixing-accessibility`、`fixing-motion-performance`。按本产品证据审计且先不改代码用 `improve-ui`。组件变体画布和自由比较画布用 `component-canvas`、`create-canvas`，默认不进产品导航。
+
 ## 目录（业务仓，与 requirements-refinement 共用）
 
 ```

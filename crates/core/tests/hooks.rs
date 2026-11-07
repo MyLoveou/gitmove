@@ -50,5 +50,13 @@ fn hooks_scope_install_and_toggle() {
 
     hooks::remove(&root, "pre-commit", "exit 3", false).unwrap();
     assert_eq!(hooks::load(&root).len(), 1);
+
+    hooks::add(&root, "post-pull", "echo post-pull", false, false).unwrap();
+    hooks::install(&root, &["post-pull".to_string()], false).unwrap();
+    assert!(
+        !root.join(".git/hooks/post-pull").exists(),
+        "post-pull 由 sync pull 调用，不写 git 钩子文件"
+    );
+
     let _ = std::fs::remove_dir_all(&root);
 }

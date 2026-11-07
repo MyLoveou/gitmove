@@ -6,8 +6,6 @@ import { useWorkspaceStore } from '../stores/workspace'
 
 const store = useWorkspaceStore()
 const status = ref<HookStatusPayload | null>(null)
-const notice = ref('')
-const error = ref('')
 
 const events = ['pre-commit', 'post-commit', 'pre-push']
 
@@ -26,7 +24,7 @@ async function load() {
   try {
     status.value = await call<HookStatusPayload>({ op: 'hook.status', workspace: store.currentWorkspace })
   } catch (err) {
-    error.value = (err as Error).message
+    store.flash('bad', (err as Error).message)
   }
 }
 
@@ -49,10 +47,10 @@ async function addHook() {
       blocking: form.value.blocking,
       global: form.value.global
     })
-    notice.value = '已添加'
+    store.flash('ok', '已添加')
     form.value.command = ''
   } catch (err) {
-    error.value = (err as Error).message
+    store.flash('bad', (err as Error).message)
   }
 }
 
@@ -67,7 +65,7 @@ async function toggle(hook: { event: string; command: string; enabled: boolean; 
       global: hook.source === 'global'
     })
   } catch (err) {
-    error.value = (err as Error).message
+    store.flash('bad', (err as Error).message)
   }
 }
 
@@ -81,7 +79,7 @@ async function removeHook(hook: { event: string; command: string; source: string
       global: hook.source === 'global'
     })
   } catch (err) {
-    error.value = (err as Error).message
+    store.flash('bad', (err as Error).message)
   }
 }
 
@@ -93,9 +91,9 @@ async function install() {
       events: installForm.value.events,
       members: installForm.value.members
     })
-    notice.value = '已安装'
+    store.flash('ok', '已安装')
   } catch (err) {
-    error.value = (err as Error).message
+    store.flash('bad', (err as Error).message)
   }
 }
 
@@ -107,9 +105,9 @@ async function uninstall() {
       events: installForm.value.events,
       members: installForm.value.members
     })
-    notice.value = '已移除'
+    store.flash('ok', '已移除')
   } catch (err) {
-    error.value = (err as Error).message
+    store.flash('bad', (err as Error).message)
   }
 }
 
@@ -132,9 +130,6 @@ watch(() => store.currentWorkspace, load)
       <strong>Git Hooks</strong>
       <span class="muted">命令定义分「工作区 / 全局」；安装时可选择事件与仓库范围</span>
     </div>
-
-    <div v-if="notice" class="banner ok">{{ notice }}</div>
-    <div v-if="error" class="banner bad">{{ error }}</div>
 
     <div class="hook-grid">
       <div v-for="event in events" :key="event" class="hook-card">

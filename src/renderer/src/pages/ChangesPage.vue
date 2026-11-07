@@ -9,8 +9,6 @@ const rows = ref<ChangeRow[]>([])
 const selected = ref<Record<string, boolean>>({})
 const message = ref('')
 const busy = ref(false)
-const notice = ref('')
-const error = ref('')
 
 const groups = computed(() => {
   const map = new Map<string, ChangeRow[]>()
@@ -56,12 +54,11 @@ async function invoke<T>(request: Parameters<Window['gitmove']['invoke']>[0]): P
 async function load() {
   if (!store.currentWorkspace) return
   busy.value = true
-  error.value = ''
   try {
     rows.value = await invoke<ChangeRow[]>({ op: 'changes.list', workspace: store.currentWorkspace })
     selected.value = {}
   } catch (err) {
-    error.value = (err as Error).message
+    store.flash('bad', (err as Error).message)
   } finally {
     busy.value = false
   }
@@ -76,8 +73,6 @@ function toggleAll(value: boolean) {
 async function commitSelected() {
   if (!message.value.trim() || !chosen.value.length) return
   busy.value = true
-  notice.value = ''
-  error.value = ''
   try {
     const outcome = await invoke<{ revision: number }>({
       op: 'rev.commitPaths',
@@ -85,13 +80,13 @@ async function commitSelected() {
       message: message.value.trim(),
       selections: chosen.value
     })
-    notice.value = `已创建修订 ${outcome.revision}（${chosen.value.length} 个文件）`
+    store.flash('ok', `已创建修订 ${outcome.revision}（${chosen.value.length} 个文件）`)
     message.value = ''
     await load()
     await store.refreshWorkspace()
     await store.refreshProjects()
   } catch (err) {
-    error.value = (err as Error).message
+    store.flash('bad', (err as Error).message)
   } finally {
     busy.value = false
   }
@@ -101,13 +96,12 @@ async function discardSelected() {
   if (!chosen.value.length) return
   if (!window.confirm(`放弃 ${chosen.value.length} 个文件的改动？此操作不可撤销。`)) return
   busy.value = true
-  error.value = ''
   try {
     await invoke({ op: 'changes.discard', workspace: store.currentWorkspace, selections: chosen.value })
-    notice.value = '已放弃所选改动'
+    store.flash('ok', '已放弃所选改动')
     await load()
   } catch (err) {
-    error.value = (err as Error).message
+    store.flash('bad', (err as Error).message)
   } finally {
     busy.value = false
   }
@@ -125,18 +119,17 @@ watch(
 
 <template>
   <section class="page">
-    <header class="page-head">
+    <header class="scale">
       <div>
-        <h1>变更</h1>
-        <p class="sub">按成员列出改动，勾选后提交或放弃（文件级，不再是整仓）</p>
+        <div class="scale-kicker">待处理变更</div>
+        <h1>{{ store.workspaceStatus?.name || '变更' }}</h1>
+        <p class="scale-read">
+          <span>{{ rows.length ? `${rows.length} 个文件` : '工作区干净' }}</span>
+          <span>已选 {{ chosen.length }}</span>
+        </p>
       </div>
-      <div class="actions">
-        <button class="btn ghost" :disabled="busy" @click="load">刷新</button>
-      </div>
+      <button class="btn ghost" :disabled="busy" @click="load">刷新</button>
     </header>
-
-    <div v-if="error" class="banner bad">{{ error }}</div>
-    <div v-if="notice" class="banner ok">{{ notice }}</div>
 
     <div class="panel commit-box">
       <div class="commit-row">
@@ -147,10 +140,9 @@ watch(
         <button class="btn" :disabled="busy || !chosen.length" @click="discardSelected">放弃选中</button>
       </div>
       <p class="hint">
-        全选 / 清空：
-        <a href="#" @click.prevent="toggleAll(true)">全选</a> ·
+        <a href="#" @click.prevent="toggleAll(true)">全选</a>
+        ·
         <a href="#" @click.prevent="toggleAll(false)">清空</a>
-        · 工作区：<code>{{ store.currentWorkspace }}</code>
       </p>
     </div>
 

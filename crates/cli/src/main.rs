@@ -208,9 +208,29 @@ enum WsAction {
     #[command(name = "branch-list")]
     BranchList,
     #[command(name = "branch-create")]
-    BranchCreate { name: String },
+    BranchCreate {
+        name: String,
+        /// Limit the new branch to one member. Omitted: every member.
+        #[arg(long)]
+        member: Option<String>,
+    },
     #[command(name = "branch-switch")]
-    BranchSwitch { name: String },
+    BranchSwitch {
+        name: String,
+        /// Limit the checkout to one member. Omitted: every member.
+        #[arg(long)]
+        member: Option<String>,
+    },
+    /// Local branch names of one member.
+    #[command(name = "branch-refs")]
+    BranchRefs { member: String },
+    /// Commit one member without creating a workspace revision.
+    #[command(name = "member-commit")]
+    MemberCommit {
+        member: String,
+        #[arg(short, long)]
+        message: String,
+    },
     Merge { branch: String },
     Refs,
     Add {
@@ -535,13 +555,21 @@ fn run(cli: &Cli, root: &Path) -> Result<Envelope<serde_json::Value>, CoreError>
         Command::Workspace { action } => match action {
             WsAction::Status => Ok(success("gitmove_ws_status", gitmove_core::workspace::status(root)?)),
             WsAction::BranchList => Ok(success("gitmove_ws_branch_list", gitmove_core::workspace::branch_list(root)?)),
-            WsAction::BranchCreate { name } => Ok(success(
+            WsAction::BranchCreate { name, member } => Ok(success(
                 "gitmove_ws_branch_create",
-                gitmove_core::workspace::branch_create(root, name)?,
+                gitmove_core::workspace::branch_create(root, name, member.as_deref())?,
             )),
-            WsAction::BranchSwitch { name } => Ok(success(
+            WsAction::BranchSwitch { name, member } => Ok(success(
                 "gitmove_ws_branch_switch",
-                gitmove_core::workspace::branch_switch(root, name)?,
+                gitmove_core::workspace::branch_switch(root, name, member.as_deref())?,
+            )),
+            WsAction::BranchRefs { member } => Ok(success(
+                "gitmove_ws_branch_refs",
+                gitmove_core::workspace::member_branches(root, member)?,
+            )),
+            WsAction::MemberCommit { member, message } => Ok(success(
+                "gitmove_ws_member_commit",
+                gitmove_core::workspace::member_commit(root, member, message)?,
             )),
             WsAction::Merge { branch } => {
                 Ok(success("gitmove_ws_merge", gitmove_core::workspace::merge(root, branch)?))

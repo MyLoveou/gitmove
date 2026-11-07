@@ -8,13 +8,13 @@ const store = useWorkspaceStore()
 const route = useRoute()
 
 const nav = [
-  { label: '总览', hint: '项目与健康', to: '/', enabled: true },
-  { label: '变更', hint: '文件级', to: '/changes', enabled: true },
-  { label: '提交图', hint: 'M3', to: '/graph', enabled: true },
-  { label: '工作区', hint: 'M2', to: '/workspace', enabled: true },
-  { label: '依赖', hint: 'lock', to: '/deps', enabled: true },
-  { label: '备份', hint: 'M4', to: '/backup', enabled: true },
-  { label: '设置', hint: 'M5', to: '/settings', enabled: true }
+  { label: '总览', to: '/' },
+  { label: '变更', to: '/changes' },
+  { label: '提交图', to: '/graph' },
+  { label: '工作区', to: '/workspace' },
+  { label: '依赖', to: '/deps' },
+  { label: '备份', to: '/backup' },
+  { label: '设置', to: '/settings' }
 ]
 
 const statusText = computed(() => {
@@ -34,24 +34,16 @@ onMounted(() => {
   <div class="shell">
     <aside class="sidebar">
       <div class="brand">
-        <div class="brand-mark">gm</div>
         <div>
           <div class="brand-name">gitmove</div>
-          <div class="brand-sub">v2 preview</div>
+          <div class="brand-sub">{{ store.workspaceStatus?.name || '未选择工作区' }}</div>
         </div>
       </div>
 
       <nav class="nav">
-        <template v-for="item in nav" :key="item.label">
-          <RouterLink v-if="item.enabled" class="nav-item" :class="{ active: route.path === item.to }" :to="item.to">
-            <span>{{ item.label }}</span>
-            <span class="nav-hint">{{ item.hint }}</span>
-          </RouterLink>
-          <div v-else class="nav-item disabled" :title="`${item.label}（${item.hint} 交付）`">
-            <span>{{ item.label }}</span>
-            <span class="nav-hint">{{ item.hint }}</span>
-          </div>
-        </template>
+        <RouterLink v-for="item in nav" :key="item.to" class="nav-item" :class="{ active: route.path === item.to }" :to="item.to">
+          <span>{{ item.label }}</span>
+        </RouterLink>
       </nav>
 
       <div class="sidebar-foot">
@@ -65,6 +57,13 @@ onMounted(() => {
     <main class="content">
       <RouterView />
     </main>
+
+    <div class="toasts" aria-live="polite">
+      <div v-for="toast in store.toasts" :key="toast.id" class="toast" :class="toast.tone">
+        <p>{{ toast.text }}</p>
+        <button type="button" aria-label="关闭" @click="store.dismissToast(toast.id)">×</button>
+      </div>
+    </div>
 
     <footer class="statusbar">
       <span class="dot" :class="{ busy: store.loading, bad: Boolean(store.error) }"></span>

@@ -43,7 +43,7 @@ src/shared/    跨进程协议类型
 | 保留策略透传 / 体积守卫 | `asset prune` / `asset guard` |
 | 配置导出导入 | `config export|import` |
 | 合并冲突面板（GUI） | 备份页「三路合并」 |
-| 同步检查 / 快进拉取 | `sync check` / `sync pull [--fetch]` |
+| 同步检查 / 快进拉取 | `sync check` / `sync pull [--fetch]`（成功后跑 `post-pull`，按装配单刷新 `.cursor` 等） |
 | 排除预设 | `exclude preset-list / preset-enable / preset-disable` |
 | vendor 模板清单 | `vendor template-list` |
 | **回滚**（主仓 + 成员逐仓 checkout） | `checkout <id> [--force]` |

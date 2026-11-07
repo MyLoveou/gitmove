@@ -1,10 +1,21 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 
+import { useRouter } from 'vue-router'
+
 import type { AuditRow } from '../../../shared/protocol'
+import { memberDrift } from '../marks'
 import { useWorkspaceStore } from '../stores/workspace'
 
+const router = useRouter()
+
 const store = useWorkspaceStore()
+
+const drifted = computed(() => (store.workspaceStatus?.members ?? []).filter((member) => memberDrift(member)))
+const revisionLabel = computed(() => {
+  const latest = store.revisions[0]
+  return latest ? `rev ${latest.id}` : '尚无修订'
+})
 
 const rows = computed(() => {
   const byAlias = new Map(store.audit.map((row) => [row.alias, row]))
@@ -70,12 +81,17 @@ onMounted(() => {
 
 <template>
   <section class="page">
-    <header class="page-head">
+    <header class="scale">
       <div>
-        <h1>总览</h1>
-        <p class="sub">全局项目与健康状态（M1：读取现有 CLI 的 --json）</p>
+        <div class="scale-kicker">当前工作区</div>
+        <h1>{{ store.workspaceStatus?.name || '未选择' }}</h1>
+        <p class="scale-read">
+          <span class="mono">{{ revisionLabel }}</span>
+          <span>{{ drifted.length ? `${drifted.length} 个成员偏离` : '成员对齐' }}</span>
+        </p>
       </div>
       <div class="actions">
+        <button class="btn primary" :disabled="!drifted.length" @click="router.push('/workspace')">处理偏离</button>
         <button class="btn ghost" :disabled="store.loading" @click="store.refreshProjects()">
           {{ store.loading ? '刷新中…' : '刷新' }}
         </button>
@@ -83,32 +99,13 @@ onMounted(() => {
     </header>
 
     <div v-if="projectNote" class="banner info">{{ projectNote }}</div>
-    <div v-if="store.error" class="banner bad">
-      <strong>读取失败</strong>
-      <span>{{ store.error }}</span>
-    </div>
 
-    <div class="stats">
-      <div class="stat">
-        <span class="stat-label">项目</span>
-        <span class="stat-value">{{ store.projects.length }}</span>
-      </div>
-      <div class="stat">
-        <span class="stat-label">文件</span>
-        <span class="stat-value">{{ store.totalFiles.toLocaleString() }}</span>
-      </div>
-      <div class="stat">
-        <span class="stat-label">体积</span>
-        <span class="stat-value">{{ formatBytes(store.totalBytes) }}</span>
-      </div>
-      <div class="stat" :class="{ bad: store.errors > 0 }">
-        <span class="stat-label">错误</span>
-        <span class="stat-value">{{ store.errors }}</span>
-      </div>
-      <div class="stat" :class="{ warn: store.warns > 0 }">
-        <span class="stat-label">警告</span>
-        <span class="stat-value">{{ store.warns }}</span>
-      </div>
+    <div class="meta-row">
+      <span>项目 <strong>{{ store.projects.length }}</strong></span>
+      <span>文件 <strong>{{ store.totalFiles.toLocaleString() }}</strong></span>
+      <span>体积 <strong>{{ formatBytes(store.totalBytes) }}</strong></span>
+      <span :class="{ bad: store.errors > 0 }">错误 <strong>{{ store.errors }}</strong></span>
+      <span :class="{ warn: store.warns > 0 }">警告 <strong>{{ store.warns }}</strong></span>
     </div>
 
     <div class="panel">
@@ -157,12 +154,6 @@ onMounted(() => {
       </table>
     </div>
 
-    <p class="footnote">
-      点击任意行可把它设为当前工作区（其他页面会跟随切换）。<br />
-    </p>
-    <p class="footnote">
-      数据源：<code>gitmove projects list --json</code> + <code>gitmove audit --all --json</code>。
-      M2 起由 Rust 核心接管，接口保持不变。
-    </p>
+    <p class="footnote">点击一行，把它设为当前工作区。</p>
   </section>
 </template>

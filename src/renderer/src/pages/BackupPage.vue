@@ -8,12 +8,10 @@ const store = useWorkspaceStore()
 const status = ref<AssetStatusPayload | null>(null)
 const results = ref<{ target: string; ok: boolean; snapshot_id: string | null; files: number; bytes: number; message: string }[]>([])
 const busy = ref(false)
-const message = ref('')
 
 const newName = ref('drive-a')
 const newRepo = ref('')
 const newPriority = ref(1)
-const targetNotice = ref('')
 const base = ref('')
 const ours = ref('')
 const theirs = ref('')
@@ -39,7 +37,7 @@ async function load() {
       workspace: store.currentWorkspace
     })
   } catch (error) {
-    message.value = (error as Error).message
+    store.flash('bad', (error as Error).message)
   } finally {
     busy.value = false
   }
@@ -47,15 +45,15 @@ async function load() {
 
 async function testTargets() {
   busy.value = true
-  message.value = ''
+  
   try {
     testResults.value = await invoke<{ target: string; ok: boolean; message: string }[]>({
       op: 'asset.test',
       workspace: store.currentWorkspace
     })
-    message.value = '目标测试完成'
+    store.flash('ok', '目标测试完成')
   } catch (error) {
-    message.value = (error as Error).message
+    store.flash('bad', (error as Error).message)
   } finally {
     busy.value = false
   }
@@ -70,9 +68,9 @@ async function resolvePath(path: string, take: string) {
       path,
       take
     })
-    message.value = `已处理 ${path}（${take}）`
+    store.flash('ok', `已处理 ${path}（${take}）`)
   } catch (error) {
-    message.value = (error as Error).message
+    store.flash('bad', (error as Error).message)
   } finally {
     busy.value = false
   }
@@ -83,10 +81,10 @@ async function finishMerge() {
   try {
     await invoke({ op: 'asset.continue', workspace: store.currentWorkspace })
     mergeState.value = null
-    message.value = '合并已完成'
+    store.flash('ok', '合并已完成')
     await load()
   } catch (error) {
-    message.value = (error as Error).message
+    store.flash('bad', (error as Error).message)
   } finally {
     busy.value = false
   }
@@ -100,11 +98,11 @@ async function invokeRaw<T>(request: Parameters<Window['gitmove']['invoke']>[0])
 
 async function addTarget() {
   if (!store.currentWorkspace || !newRepo.value.trim()) {
-    targetNotice.value = '请填写仓库路径（本地目录，例如 E:/backup/video-restic）'
+    store.flash('bad', '请填写仓库路径（本地目录，例如 E:/backup/video-restic）')
     return
   }
   busy.value = true
-  targetNotice.value = ''
+  
   try {
     const current = await invokeRaw<{ text: string; exists: boolean }>({
       op: 'file.read',
@@ -126,11 +124,11 @@ async function addTarget() {
       path: 'workspace.toml',
       text: current.text + block
     })
-    targetNotice.value = '已写入 workspace.toml；接着点「初始化仓库」再「备份全部」'
+    store.flash('ok', '已写入 workspace.toml；接着点「初始化仓库」再「备份全部」')
     newRepo.value = ''
     await load()
   } catch (error) {
-    targetNotice.value = (error as Error).message
+    store.flash('bad', (error as Error).message)
   } finally {
     busy.value = false
   }
@@ -142,7 +140,7 @@ async function initRepos() {
     results.value = await invoke({ op: 'asset.init', workspace: store.currentWorkspace })
     await load()
   } catch (error) {
-    message.value = (error as Error).message
+    store.flash('bad', (error as Error).message)
   } finally {
     busy.value = false
   }
@@ -150,17 +148,17 @@ async function initRepos() {
 
 async function backupAll() {
   busy.value = true
-  message.value = ''
+  
   try {
     const outcome = await invoke<{ results: typeof results.value; partial: boolean }>({
       op: 'asset.backup',
       workspace: store.currentWorkspace
     })
     results.value = outcome.results
-    message.value = outcome.partial ? '部分目标失败（其余已成功）' : '全部目标备份完成'
+    store.flash(outcome.partial ? 'bad' : 'ok', outcome.partial ? '部分目标失败（其余已成功）' : '全部目标备份完成')
     await load()
   } catch (error) {
-    message.value = (error as Error).message
+    store.flash('bad', (error as Error).message)
   } finally {
     busy.value = false
   }
@@ -168,11 +166,11 @@ async function backupAll() {
 
 async function analyze() {
   if (!base.value || !ours.value || !theirs.value) {
-    message.value = '请选择 base / ours / theirs 三个快照'
+    store.flash('bad', '请选择 base / ours / theirs 三个快照')
     return
   }
   busy.value = true
-  message.value = ''
+  
   try {
     plan.value = await invoke<MergePlanPayload>({
       op: 'asset.merge',
@@ -182,7 +180,7 @@ async function analyze() {
       theirs: theirs.value
     })
   } catch (error) {
-    message.value = (error as Error).message
+    store.flash('bad', (error as Error).message)
   } finally {
     busy.value = false
   }
@@ -191,7 +189,7 @@ async function analyze() {
 async function applyPlan(force: boolean) {
   if (!plan.value) return
   busy.value = true
-  message.value = ''
+  
   try {
     await invoke({
       op: 'asset.merge',
@@ -202,11 +200,11 @@ async function applyPlan(force: boolean) {
       apply: true,
       force
     })
-    message.value = force ? '已应用无歧义部分（冲突保留）' : '合并完成'
+    store.flash('ok', force ? '已应用无歧义部分（冲突保留）' : '合并完成')
     plan.value = null
     await load()
   } catch (error) {
-    message.value = (error as Error).message
+    store.flash('bad', (error as Error).message)
   } finally {
     busy.value = false
   }
@@ -236,15 +234,18 @@ watch(
 
 <template>
   <section class="page">
-    <header class="page-head">
+    <header class="scale">
       <div>
-        <h1>备份</h1>
-        <p class="sub">资产平面：双盘备份 + 三路合并（冲突不自动解决）</p>
+        <div class="scale-kicker">资产</div>
+        <h1>{{ store.workspaceStatus?.name || '备份' }}</h1>
+        <p class="scale-read">
+          <span>{{ status?.targets?.length ?? 0 }} 个目标</span>
+          <span>{{ snapshots.length }} 个快照</span>
+          <span>{{ status?.restic_version ? 'restic 可用' : 'restic 未就绪' }}</span>
+        </p>
       </div>
       <div class="actions">
         <button class="btn ghost" :disabled="busy" @click="load">刷新</button>
-        <button class="btn ghost" :disabled="busy" @click="initRepos">初始化仓库</button>
-        <button class="btn ghost" :disabled="busy || !status?.targets?.length" @click="testTargets">测试目标</button>
         <button class="btn primary" :disabled="busy || !status?.restic_version" @click="backupAll">
           {{ busy ? '处理中…' : '备份全部' }}
         </button>
@@ -252,23 +253,22 @@ watch(
     </header>
 
     <div v-if="!store.canCommit" class="banner warn">需要 Rust 核心：<code>cargo build --release</code></div>
-    <div class="banner info">
-      用法：① 在下方「添加备份目标」填写每块盘的仓库目录（写入 <code>workspace.toml</code> 的 <code>[[backup.target]]</code>）
-      → ②「初始化仓库」只做一次 → ③「备份全部」写两块盘 → ④ 下方「快照」查看历史；三路合并选 base/ours/theirs 即可分析。
-    </div>
-    <div v-if="targetNotice" class="banner ok">{{ targetNotice }}</div>
 
-    <div class="panel pad">
-      <div class="panel-title"><strong>添加备份目标</strong><span class="muted">写入 workspace.toml 的 [[backup.target]]</span></div>
+    <details class="fold">
+      <summary>目标与初始化</summary>
+      <div class="form-row" style="margin-bottom: 12px">
+        <button class="btn" :disabled="busy" @click="initRepos">初始化仓库</button>
+        <button class="btn" :disabled="busy || !status?.targets?.length" @click="testTargets">测试目标</button>
+      </div>
+      <div class="panel-title"><span class="muted">写入 workspace.toml 的 [[backup.target]]</span></div>
       <div class="form-row">
         <label class="field"><span>名称</span><input v-model="newName" class="input" placeholder="drive-e" /></label>
         <label class="field" style="min-width: 320px"><span>仓库目录（本地绝对路径）</span><input v-model="newRepo" class="input" placeholder="E:/backup/video-restic" /></label>
         <label class="field" style="min-width: 90px"><span>优先级</span><input v-model.number="newPriority" class="input" type="number" min="1" /></label>
         <button class="btn primary" :disabled="busy" @click="addTarget">添加目标</button>
       </div>
-      <p class="hint">提示：仓库目录必须不存在或为空（restic 会初始化它），两块盘用不同目录。</p>
-    </div>
-    <div v-if="message" class="banner ok">{{ message }}</div>
+      <p class="hint">仓库目录必须不存在或为空。两块盘用不同目录。初始化只做一次。</p>
+    </details>
 
     <div class="panel">
       <table class="table">
@@ -285,11 +285,8 @@ watch(
       </table>
     </div>
 
-    <div class="panel pad merge-box">
-      <div class="merge-head">
-        <strong>三路合并</strong>
-        <span class="dim">选 base / ours / theirs（同一目标仓库的快照）</span>
-      </div>
+    <details class="fold merge-box">
+      <summary>三路合并</summary>
       <div class="merge-selects">
         <label>base<select v-model="base" class="input"><option value="">—</option><option v-for="s in snapshots" :key="'b'+s.snapshot_id" :value="s.snapshot_id">{{ short(s.snapshot_id) }} · {{ s.target }}</option></select></label>
         <label>ours<select v-model="ours" class="input"><option value="">—</option><option v-for="s in snapshots" :key="'o'+s.snapshot_id" :value="s.snapshot_id">{{ short(s.snapshot_id) }} · {{ s.target }}</option></select></label>
@@ -319,7 +316,7 @@ watch(
           <button class="btn" :disabled="busy" @click="applyPlan(true)">只应用无歧义部分</button>
         </div>
       </div>
-    </div>
+    </details>
 
     <div v-if="testResults.length" class="panel pad">
       <div class="panel-title"><strong>目标连通性</strong></div>

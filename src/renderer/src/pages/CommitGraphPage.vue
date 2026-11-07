@@ -39,7 +39,7 @@ async function refreshGraph() {
 async function copySha() {
   if (!selected.value) return
   await navigator.clipboard.writeText(selected.value.sha)
-  store.notice = '已复制 SHA'
+  store.flash('ok', '已复制 SHA')
 }
 
 function short(commit: string | null): string {
@@ -63,28 +63,26 @@ watch(
 
 <template>
   <section class="page">
-    <header class="page-head">
+    <header class="scale">
       <div>
-        <h1>提交图</h1>
-        <p class="sub">分支切出、合并、标签都在图里；点节点看详情</p>
+        <div class="scale-kicker">修订</div>
+        <h1>{{ rows[0] ? `rev ${rows[0].id}` : '尚无修订' }}</h1>
+        <p class="scale-read">
+          <span>{{ store.workspaceStatus?.name || '提交图' }}</span>
+          <span>{{ rows.length }} 条</span>
+        </p>
       </div>
-      <div class="actions">
-        <button class="btn ghost" :disabled="store.busy" @click="store.rebuildIndex()">重建索引</button>
-        <button class="btn ghost" :disabled="store.busy" @click="store.refreshWorkspace()">刷新</button>
-      </div>
+      <button class="btn ghost" :disabled="store.busy" @click="store.refreshWorkspace()">刷新</button>
     </header>
 
     <div v-if="!store.canCommit" class="banner warn">
       <strong>需要 Rust 核心</strong>
       <span>构建核心后可用提交/回滚：<code>cargo build --release</code></span>
     </div>
-    <div v-if="store.notice" class="banner ok">{{ store.notice }}</div>
-    <div v-if="store.error" class="banner bad">{{ store.error }}</div>
-
     <div class="panel pad">
       <div class="panel-title">
-        <strong>提交图</strong>
-        <span class="muted">默认只看当前分支；勾选「全部分支」可看所有历史</span>
+        <strong>图</strong>
+        <button class="btn ghost" :disabled="store.busy" @click="store.rebuildIndex()">重建索引</button>
       </div>
       <div class="form-row">
         <label class="field">

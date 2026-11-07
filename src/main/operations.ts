@@ -183,8 +183,41 @@ export async function handleOp(request: Op): Promise<OpResult> {
       }
       case 'ws.switch': {
         requireCore()
-        const rows = await call<BranchRow[]>(['-C', request.workspace, 'ws', 'branch-switch', request.name])
+        const argv = ['-C', request.workspace, 'ws', 'branch-switch', request.name]
+        if (request.member) argv.push('--member', request.member)
+        const rows = await call<BranchRow[]>(argv)
         return { ok: true, data: rows }
+      }
+      case 'ws.branch.create': {
+        requireCore()
+        const rows = await call<BranchRow[]>([
+          '-C',
+          request.workspace,
+          'ws',
+          'branch-create',
+          request.name,
+          '--member',
+          request.member
+        ])
+        return { ok: true, data: rows }
+      }
+      case 'ws.branch.refs': {
+        requireCore()
+        const names = await call<string[]>(['-C', request.workspace, 'ws', 'branch-refs', request.member])
+        return { ok: true, data: names }
+      }
+      case 'member.commit': {
+        requireCore()
+        const data = await call<{ member: string; commit: string; branch: string }>([
+          '-C',
+          request.workspace,
+          'ws',
+          'member-commit',
+          request.member,
+          '-m',
+          request.message
+        ])
+        return { ok: true, data }
       }
       case 'sync.check': {
         requireCore()

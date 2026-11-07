@@ -46,6 +46,7 @@ export const useWorkspaceStore = defineStore('workspace', {
     busy: false,
     error: null as string | null,
     notice: null as string | null,
+    toasts: [] as { id: number; tone: 'ok' | 'bad'; text: string }[],
     lastRefresh: null as Date | null
   }),
   getters: {
@@ -56,6 +57,16 @@ export const useWorkspaceStore = defineStore('workspace', {
     canCommit: (state) => state.info?.engine === 'rust'
   },
   actions: {
+    flash(tone: 'ok' | 'bad', text: string) {
+      const id = Date.now() + Math.floor(Math.random() * 1000)
+      this.toasts = [...this.toasts, { id, tone, text }]
+      window.setTimeout(() => {
+        this.toasts = this.toasts.filter((item) => item.id !== id)
+      }, tone === 'bad' ? 7000 : 3800)
+    },
+    dismissToast(id: number) {
+      this.toasts = this.toasts.filter((item) => item.id !== id)
+    },
     async bootstrap() {
       this.loading = true
       this.error = null
@@ -68,7 +79,7 @@ export const useWorkspaceStore = defineStore('workspace', {
           await this.refreshWorkspace()
         }
       } catch (error) {
-        this.error = (error as Error).message
+        this.flash('bad', (error as Error).message)
       } finally {
         this.loading = false
       }
@@ -81,7 +92,7 @@ export const useWorkspaceStore = defineStore('workspace', {
         this.audit = await invoke<AuditRow[]>({ op: 'audit.all' })
         this.lastRefresh = new Date()
       } catch (error) {
-        this.error = (error as Error).message
+        this.flash('bad', (error as Error).message)
       } finally {
         this.loading = false
       }
@@ -104,7 +115,7 @@ export const useWorkspaceStore = defineStore('workspace', {
           workspace: this.currentWorkspace
         })
       } catch (error) {
-        this.error = (error as Error).message
+        this.flash('bad', (error as Error).message)
       }
     },
     async loadGraph(branch?: string, all?: boolean) {
@@ -118,7 +129,7 @@ export const useWorkspaceStore = defineStore('workspace', {
           all: all ?? this.graphAll
         })
       } catch (error) {
-        this.error = (error as Error).message
+        this.flash('bad', (error as Error).message)
       }
     },
     async loadLogs(lines = 200) {
@@ -126,7 +137,7 @@ export const useWorkspaceStore = defineStore('workspace', {
         const data = await invoke<{ text: string; total: number }>({ op: 'logs.read', lines })
         this.logText = data.text
       } catch (error) {
-        this.error = (error as Error).message
+        this.flash('bad', (error as Error).message)
       }
     },
     async addMember(payload: {
@@ -142,11 +153,11 @@ export const useWorkspaceStore = defineStore('workspace', {
       this.busy = true
       try {
         await invoke({ op: 'ws.add', workspace: this.currentWorkspace, ...payload })
-        this.notice = `已添加成员 ${payload.name}`
+        this.flash('ok', `已添加成员 ${payload.name}`)
         await this.refreshWorkspace()
         return true
       } catch (error) {
-        this.error = (error as Error).message
+        this.flash('bad', (error as Error).message)
         return false
       } finally {
         this.busy = false
@@ -157,10 +168,10 @@ export const useWorkspaceStore = defineStore('workspace', {
       this.busy = true
       try {
         await invoke({ op: 'ws.contribute', workspace: this.currentWorkspace, member })
-        this.notice = `已回推成员 ${member}`
+        this.flash('ok', `已回推成员 ${member}`)
         await this.refreshWorkspace()
       } catch (error) {
-        this.error = (error as Error).message
+        this.flash('bad', (error as Error).message)
       } finally {
         this.busy = false
       }
@@ -170,10 +181,10 @@ export const useWorkspaceStore = defineStore('workspace', {
       this.busy = true
       try {
         await invoke({ op: 'ws.sync', workspace: this.currentWorkspace, member })
-        this.notice = '已按 workspace.lock.toml 同步成员'
+        this.flash('ok', '已按 workspace.lock.toml 同步成员')
         await this.refreshWorkspace()
       } catch (error) {
-        this.error = (error as Error).message
+        this.flash('bad', (error as Error).message)
       } finally {
         this.busy = false
       }
@@ -183,10 +194,26 @@ export const useWorkspaceStore = defineStore('workspace', {
       this.busy = true
       try {
         await invoke({ op: 'ws.update', workspace: this.currentWorkspace, member })
-        this.notice = '已更新 pin 并写入 workspace.lock.toml'
+        this.flash('ok', '已更新 pin 并写入 workspace.lock.toml')
         await this.refreshWorkspace()
       } catch (error) {
-        this.error = (error as Error).message
+        this.flash('bad', (error as Error).message)
+      } finally {
+        this.busy = false
+      }
+    },
+    /** 对齐 = 先把上游写进 lock，再按 lock 检出。两步都成功才算这个成员对齐。 */
+    async alignMember(member: string) {
+      if (!this.currentWorkspace) return
+      this.busy = true
+      this.error = null
+      try {
+        await invoke({ op: 'ws.update', workspace: this.currentWorkspace, member })
+        await invoke({ op: 'ws.sync', workspace: this.currentWorkspace, member })
+        this.flash('ok', `已对齐 ${member}`)
+        await this.refreshWorkspace()
+      } catch (error) {
+        this.flash('bad', (error as Error).message)
       } finally {
         this.busy = false
       }
@@ -196,10 +223,10 @@ export const useWorkspaceStore = defineStore('workspace', {
       this.busy = true
       try {
         await invoke({ op: 'sync.pull', workspace: this.currentWorkspace, fetch: true, mode })
-        this.notice = mode ? `已${mode === 'merge' ? '合并' : '变基'}拉取` : '已快进拉取'
+        this.flash('ok', mode ? `已${mode === 'merge' ? '合并' : '变基'}拉取` : '已快进拉取')
         await this.refreshWorkspace()
       } catch (error) {
-        this.error = (error as Error).message
+        this.flash('bad', (error as Error).message)
       } finally {
         this.busy = false
       }
@@ -217,7 +244,7 @@ export const useWorkspaceStore = defineStore('workspace', {
           this.workspaceStatus = null
           this.revisions = []
         } else {
-          this.error = err.message
+          this.flash('bad', err.message)
         }
       } finally {
         this.busy = false
@@ -228,7 +255,7 @@ export const useWorkspaceStore = defineStore('workspace', {
       this.busy = true
       try {
         await invoke({ op: 'rev.checkout', workspace: this.currentWorkspace, id, force })
-        this.notice = `已回滚到修订 ${id}`
+        this.flash('ok', `已回滚到修订 ${id}`)
         await this.refreshWorkspace()
         await this.refreshProjects()
         await this.loadGraph()
@@ -240,7 +267,44 @@ export const useWorkspaceStore = defineStore('workspace', {
             return
           }
         }
-        this.error = err.message
+        this.flash('bad', err.message)
+      } finally {
+        this.busy = false
+      }
+    },
+    async memberBranches(member: string): Promise<string[]> {
+      if (!this.currentWorkspace) return []
+      return invoke<string[]>({ op: 'ws.branch.refs', workspace: this.currentWorkspace, member })
+    },
+    async createMemberBranch(member: string, name: string) {
+      if (!this.currentWorkspace) return
+      this.busy = true
+      try {
+        await invoke({ op: 'ws.branch.create', workspace: this.currentWorkspace, name, member })
+        this.flash('ok', `已在 ${member} 新建 ${name}`)
+        await this.refreshWorkspace()
+      } finally {
+        this.busy = false
+      }
+    },
+    async switchMemberBranch(member: string, name: string) {
+      if (!this.currentWorkspace) return
+      this.busy = true
+      try {
+        await invoke({ op: 'ws.switch', workspace: this.currentWorkspace, name, member })
+        this.flash('ok', `已让 ${member} 使用 ${name}`)
+        await this.refreshWorkspace()
+      } finally {
+        this.busy = false
+      }
+    },
+    async commitMember(member: string, message: string) {
+      if (!this.currentWorkspace) return
+      this.busy = true
+      try {
+        await invoke({ op: 'member.commit', workspace: this.currentWorkspace, member, message })
+        this.flash('ok', `已提交 ${member}`)
+        await this.refreshWorkspace()
       } finally {
         this.busy = false
       }
@@ -250,10 +314,10 @@ export const useWorkspaceStore = defineStore('workspace', {
       this.busy = true
       try {
         await invoke({ op: 'ws.switch', workspace: this.currentWorkspace, name })
-        this.notice = `已切换到分支 ${name}`
+        this.flash('ok', `已切换到分支 ${name}`)
         await this.refreshWorkspace()
       } catch (error) {
-        this.error = (error as Error).message
+        this.flash('bad', (error as Error).message)
       } finally {
         this.busy = false
       }
@@ -266,7 +330,7 @@ export const useWorkspaceStore = defineStore('workspace', {
           workspace: this.currentWorkspace
         })
       } catch (error) {
-        this.error = (error as Error).message
+        this.flash('bad', (error as Error).message)
       }
     },
     async syncPull() {
@@ -274,10 +338,10 @@ export const useWorkspaceStore = defineStore('workspace', {
       this.busy = true
       try {
         await invoke({ op: 'sync.pull', workspace: this.currentWorkspace, fetch: true })
-        this.notice = '已快进拉取'
+        this.flash('ok', '已快进拉取')
         await this.refreshWorkspace()
       } catch (error) {
-        this.error = (error as Error).message
+        this.flash('bad', (error as Error).message)
       } finally {
         this.busy = false
       }
@@ -288,7 +352,7 @@ export const useWorkspaceStore = defineStore('workspace', {
         const data = await invoke<{ toml: string }>({ op: 'config.export', workspace: this.currentWorkspace })
         this.configToml = data.toml
       } catch (error) {
-        this.error = (error as Error).message
+        this.flash('bad', (error as Error).message)
       }
     },
     async saveConfig(toml: string) {
@@ -296,10 +360,10 @@ export const useWorkspaceStore = defineStore('workspace', {
       try {
         await invoke({ op: 'config.save', workspace: this.currentWorkspace, toml })
         this.configToml = toml
-        this.notice = '配置已保存'
+        this.flash('ok', '配置已保存')
         return true
       } catch (error) {
-        this.error = (error as Error).message
+        this.flash('bad', (error as Error).message)
         return false
       }
     },
@@ -315,7 +379,7 @@ export const useWorkspaceStore = defineStore('workspace', {
         }
         await this.loadFile(this.activeFile)
       } catch (error) {
-        this.error = (error as Error).message
+        this.flash('bad', (error as Error).message)
       }
     },
     async loadFile(path: string) {
@@ -325,18 +389,18 @@ export const useWorkspaceStore = defineStore('workspace', {
         const data = await invoke<{ text: string }>({ op: 'file.read', workspace: this.currentWorkspace, path })
         this.fileText = data.text
       } catch (error) {
-        this.error = (error as Error).message
+        this.flash('bad', (error as Error).message)
       }
     },
     async saveFile(path: string, text: string) {
       if (!this.currentWorkspace) return false
       try {
         await invoke({ op: 'file.write', workspace: this.currentWorkspace, path, text })
-        this.notice = `已保存 ${path}（旧文件备份为 .bak）`
+        this.flash('ok', `已保存 ${path}（旧文件备份为 .bak）`)
         await this.loadFiles()
         return true
       } catch (error) {
-        this.error = (error as Error).message
+        this.flash('bad', (error as Error).message)
         return false
       }
     },
@@ -349,10 +413,10 @@ export const useWorkspaceStore = defineStore('workspace', {
           workspace: this.currentWorkspace,
           limit: 200
         })
-        this.notice = data.imported ? `已从 git 历史导入 ${data.imported} 条修订` : '没有可导入的提交'
+        this.flash('ok', data.imported ? `已从 git 历史导入 ${data.imported} 条修订` : '没有可导入的提交')
         await this.refreshWorkspace()
       } catch (error) {
-        this.error = (error as Error).message
+        this.flash('bad', (error as Error).message)
       } finally {
         this.busy = false
       }
@@ -368,13 +432,13 @@ export const useWorkspaceStore = defineStore('workspace', {
             workspace: this.currentWorkspace,
             limit: 200
           })
-          this.notice = `没有 trailer 可重建；已从 git 历史导入 ${imported.imported} 条修订`
+          this.flash('ok', `没有 trailer 可重建；已从 git 历史导入 ${imported.imported} 条修订`)
         } else {
-          this.notice = `索引重建完成：${data.revisions} 条修订`
+          this.flash('ok', `索引重建完成：${data.revisions} 条修订`)
         }
         await this.refreshWorkspace()
       } catch (error) {
-        this.error = (error as Error).message
+        this.flash('bad', (error as Error).message)
       } finally {
         this.busy = false
       }
@@ -391,13 +455,13 @@ export const useWorkspaceStore = defineStore('workspace', {
           message,
           members
         })
-        this.notice = `已创建修订 ${outcome.revision}（${outcome.git_commit?.slice(0, 7) ?? 'no-commit'}）`
+        this.flash('ok', `已创建修订 ${outcome.revision}（${outcome.git_commit?.slice(0, 7) ?? 'no-commit'}）`)
         await this.refreshWorkspace()
         await this.refreshProjects()
         return true
       } catch (error) {
         const err = error as Error & { steps?: string[] }
-        this.error = err.steps?.length ? `${err.message}（${err.steps.join(' / ')}）` : err.message
+        this.flash('bad', err.steps?.length ? `${err.message}（${err.steps.join(' / ')}）` : err.message)
         return false
       } finally {
         this.busy = false
