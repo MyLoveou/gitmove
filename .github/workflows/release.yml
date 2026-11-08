@@ -150,11 +150,9 @@ jobs:
           tag="${GITHUB_REF#refs/tags/}"
           git log -1 --pretty=%B > release-notes.md
           if gh release view "$tag" >/dev/null 2>&1; then
-            echo "release exists, uploading assets (idempotent)"
-            gh release upload "$tag" artifacts/* --clobber
-            gh release edit "$tag" --title "gitmove v${{ needs.verify.outputs.version }}" || true
-          else
-            gh release create "$tag" artifacts/* \
-              --title "gitmove v${{ needs.verify.outputs.version }}" \
-              --notes-file release-notes.md
+            echo "release exists; recreating it (tag kept)"
+            gh release delete "$tag" --yes --cleanup-tag=false || true
           fi
+          gh release create "$tag" artifacts/* \
+            --title "gitmove v${{ needs.verify.outputs.version }}" \
+            --notes-file release-notes.md
