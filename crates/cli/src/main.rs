@@ -323,6 +323,16 @@ enum WsAction {
 #[derive(Subcommand)]
 enum DepAction {
     List,
+    Status {
+        #[arg(long)]
+        fetch: bool,
+    },
+    Update {
+        name: String,
+        #[arg(long)]
+        to: Option<String>,
+    },
+    Verify,
 }
 
 #[derive(Subcommand)]
@@ -694,25 +704,19 @@ fn run(cli: &Cli, root: &Path) -> Result<Envelope<serde_json::Value>, CoreError>
                 gitmove_core::contribute::contribute(root, member, branch.clone(), *no_push)?,
             )),
         },
-        Command::Dependencies { action: DepAction::List } => {
-            let rows = gitmove_core::deps::list(root)?;
-            let payload: Vec<serde_json::Value> = rows
-                .iter()
-                .map(|dep| {
-                    serde_json::json!({
-                        "name": dep.name,
-                        "kind": dep.kind,
-                        "ref": dep.ref_tag,
-                        "commit": dep.commit,
-                        "installed": dep.installed.first().map(|row| row.version.clone()),
-                        "drift": dep.drift,
-                        "in_effect": dep.in_effect,
-                        "label": gitmove_core::deps::label(dep),
-                    })
-                })
-                .collect();
-            Ok(success("gitmove_dep_list", payload))
-        }
+        Command::Dependencies { action } => match action {
+            DepAction::List => Ok(success("gitmove_dep_list", gitmove_core::deps::list(root)?)),
+            DepAction::Status { fetch } => Ok(success(
+                "gitmove_dep_status",
+                gitmove_core::deps::status(root, *fetch)?,
+            )),
+            DepAction::Update { name, to } => Ok(success(
+                "gitmove_dep_update",
+                gitmove_core::deps::update(root, name, to.as_deref())?,
+            )),
+            DepAction::Verify => Ok(success("gitmove_dep_verify", gitmove_core::deps::verify(root)?)),
+        },
+
         Command::Asset { action } => match action {
             AssetAction::Init { target } => Ok(success(
                 "gitmove_asset_init",

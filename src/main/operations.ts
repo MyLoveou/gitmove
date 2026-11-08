@@ -10,6 +10,7 @@ import type {
   AuditRow,
   AssetFile,
   CommitFile,
+  DepStatusRow,
   ScanRow,
   SnapshotDiffRow,
   DiffPayload,
@@ -189,6 +190,25 @@ export async function handleOp(request: Op): Promise<OpResult> {
         const argv = ['-C', request.workspace, 'checkout', String(request.id)]
         if (request.force) argv.push('--force')
         const data = await call<unknown>(argv)
+        return { ok: true, data }
+      }
+      case 'dep.status': {
+        requireCore()
+        const argv = ['-C', request.workspace, 'dep', 'status']
+        if (request.fetch) argv.push('--fetch')
+        const data = await call<DepStatusRow[]>(argv)
+        return { ok: true, data }
+      }
+      case 'dep.update': {
+        requireCore()
+        const argv = ['-C', request.workspace, 'dep', 'update', request.name]
+        if (request.to) argv.push('--to', request.to)
+        const data = await call<DepStatusRow>(argv)
+        return { ok: true, data }
+      }
+      case 'dep.verify': {
+        requireCore()
+        const data = await call<DepStatusRow[]>(['-C', request.workspace, 'dep', 'verify'])
         return { ok: true, data }
       }
       case 'dep.list': {

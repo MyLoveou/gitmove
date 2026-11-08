@@ -4,7 +4,7 @@ use std::path::Path;
 use serde::Serialize;
 
 use crate::error::CoreResult;
-use crate::{asset, git, hooks, merge, workspace};
+use crate::{asset, deps, git, hooks, merge, workspace};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Check {
@@ -91,6 +91,17 @@ pub fn run(root: &Path) -> CoreResult<Vec<Check>> {
         let configured = status.hooks.iter().filter(|hook| hook.enabled).count();
         if configured > 0 && status.repos.iter().all(|repo| repo.events.is_empty()) {
             rows.push(check("hooks", "warn", "钩子已配置但未安装", "gitmove hook install"));
+        }
+    }
+
+    if let Ok(dep_rows) = deps::status(root, false) {
+        for row in dep_rows.iter().filter(|row| row.state == "outdated") {
+            rows.push(check(
+                "deps",
+                "warn",
+                format!("依赖落后: {}", row.name),
+                row.message.clone(),
+            ));
         }
     }
 

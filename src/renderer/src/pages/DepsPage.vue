@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, watch, ref } from 'vue'
 
-import type { DepRow } from '../../../shared/protocol'
+import type { DepRow, DepStatusRow } from '../../../shared/protocol'
 import { useRouter } from 'vue-router'
 
 import { useWorkspaceStore } from '../stores/workspace'
@@ -9,6 +9,43 @@ import { useWorkspaceStore } from '../stores/workspace'
 const store = useWorkspaceStore()
 const router = useRouter()
 const rows = ref<DepRow[]>([])
+const statusRows = ref<DepStatusRow[]>([])
+const notice = ref('')
+const checking = ref(false)
+
+function statusOf(name: string): DepStatusRow | undefined {
+  return statusRows.value.find((row) => row.name === name)
+}
+
+async function loadStatus(fetch = false) {
+  if (!store.currentWorkspace) return
+  checking.value = true
+  notice.value = ''
+  try {
+    statusRows.value = await invoke<DepStatusRow[]>({ op: 'dep.status', workspace: store.currentWorkspace, fetch })
+    const outdated = statusRows.value.filter((row) => row.state === 'outdated')
+    notice.value = fetch ? `已检查上游：${outdated.length} 个依赖落后` : '已读取本地状态'
+  } catch (err) {
+    notice.value = (err as Error).message
+  } finally {
+    checking.value = false
+  }
+}
+
+async function updateDep(name: string) {
+  if (!window.confirm(`把 ${name} 的锁更新到上游最新并写入 project.lock.toml？`)) return
+  checking.value = true
+  try {
+    await invoke({ op: 'dep.update', workspace: store.currentWorkspace, name })
+    notice.value = `已更新 ${name}`
+    await load()
+    await loadStatus()
+  } catch (err) {
+    notice.value = (err as Error).message
+  } finally {
+    checking.value = false
+  }
+}
 const offCount = computed(() => rows.value.filter((row) => row.drift || !row.in_effect).length)
 const busy = ref(false)
 
@@ -30,7 +67,10 @@ async function load() {
   }
 }
 
-onMounted(load)
+onMounted(async () => {
+  await load()
+  await loadStatus()
+})
 
 watch(
   () => store.currentWorkspace,
@@ -70,7 +110,10 @@ watch(
             <th>类型</th>
             <th>声明</th>
             <th>实装</th>
+            <th>上游</th>
+            <th>落后</th>
             <th>状态</th>
+            <th></th>
             <th>行</th>
           </tr>
         </thead>
@@ -80,15 +123,25 @@ watch(
             <td class="mono dim">{{ row.kind || '—' }}</td>
             <td class="mono dim">{{ row.ref || row.commit?.slice(0, 7) || '—' }}</td>
             <td class="mono dim">{{ row.installed || '—' }}</td>
+            <td class="mono">{{ statusOf(row.name)?.upstream_version ?? '—' }}</td>
+            <td class="mono">{{ statusOf(row.name)?.behind ?? '—' }}</td>
             <td>
               <span v-if="!row.in_effect" class="badge warn">未生效</span>
               <span v-else-if="row.drift" class="badge bad">漂移</span>
               <span v-else class="badge ok">一致</span>
             </td>
             <td class="mono dim">{{ row.label }}</td>
+            <td>
+              <button
+                v-if="statusOf(row.name)?.state === 'outdated'"
+                class="btn tiny"
+                :disabled="checking"
+                @click="updateDep(row.name)"
+              >更新</button>
+            </td>
           </tr>
           <tr v-if="!rows.length">
-            <td colspan="6" class="empty">{{ busy ? '正在读取…' : '该项目没有 project.lock.toml 或没有声明依赖' }}</td>
+            <td colspan="9" class="empty">{{ busy ? '正在读取…' : '该项目没有 project.lock.toml 或没有声明依赖' }}</td>
           </tr>
         </tbody>
       </table>

@@ -133,6 +133,20 @@ export interface HookStatusPayload {
   scripts: { repo: string; event: string; text: string }[]
 }
 
+export interface DepStatusRow {
+  name: string
+  kind: string
+  url: string
+  lock_version: string | null
+  lock_commit: string | null
+  upstream_version: string | null
+  upstream_commit: string | null
+  behind: number | null
+  ahead: number | null
+  state: string
+  message: string
+}
+
 export interface ScanRow {
   path: string
   alias: string
@@ -249,6 +263,9 @@ export type Op =
   | { op: 'config.save'; workspace: string; toml: string }
   | { op: 'rev.checkout'; workspace: string; id: number; force?: boolean }
   | { op: 'dep.list'; workspace: string }
+  | { op: 'dep.status'; workspace: string; fetch?: boolean }
+  | { op: 'dep.update'; workspace: string; name: string; to?: string }
+  | { op: 'dep.verify'; workspace: string }
   | { op: 'ws.branches'; workspace: string }
   | { op: 'ws.switch'; workspace: string; name: string; member?: string }
   | { op: 'ws.branch.create'; workspace: string; name: string; member: string }
