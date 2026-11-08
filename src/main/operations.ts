@@ -10,6 +10,7 @@ import type {
   AuditRow,
   AssetFile,
   CommitFile,
+  ScanRow,
   SnapshotDiffRow,
   DiffPayload,
   BranchRefs,
@@ -407,6 +408,27 @@ export async function handleOp(request: Op): Promise<OpResult> {
         if (request.mode === 'merge') argv.push('--merge')
         if (request.mode === 'rebase') argv.push('--rebase')
         const data = await call<unknown>(argv)
+        return { ok: true, data }
+      }
+      case 'projects.add': {
+        requireCore()
+        const argv = ['projects', 'add', request.path]
+        if (request.alias) argv.push('--alias', request.alias)
+        if (request.group) argv.push('--group', request.group)
+        if (request.notes) argv.push('--notes', request.notes)
+        const data = await call<unknown>(argv)
+        return { ok: true, data }
+      }
+      case 'projects.remove': {
+        requireCore()
+        const data = await call<unknown>(['projects', 'remove', request.target])
+        return { ok: true, data }
+      }
+      case 'projects.scan': {
+        requireCore()
+        const argv = ['projects', 'scan', request.root, '--depth', String(request.depth ?? 2)]
+        if (request.register) argv.push('--register')
+        const data = await call<ScanRow[]>(argv)
         return { ok: true, data }
       }
       case 'rev.files': {

@@ -51,6 +51,46 @@ function statusClass(status: string): string {
 }
 
 const projectNote = ref('')
+const projectForm = ref({ path: '', alias: '', group: '' })
+const scanRoot = ref('')
+const scanRows = ref<{ path: string; alias: string; registered: boolean }[]>([])
+const manageNotice = ref('')
+
+async function addProject(path = projectForm.value.path, alias = projectForm.value.alias) {
+  if (!path.trim()) {
+    manageNotice.value = '请填写仓库路径'
+    return
+  }
+  try {
+    await window.gitmove.invoke({
+      op: 'projects.add',
+      path: path.trim(),
+      alias: alias.trim() || undefined,
+      group: projectForm.value.group.trim() || undefined
+    })
+    manageNotice.value = `已添加 ${alias || path}`
+    projectForm.value = { path: '', alias: '', group: '' }
+    await store.bootstrap()
+  } catch (error) {
+    manageNotice.value = (error as Error).message
+  }
+}
+
+async function scanProjects() {
+  if (!scanRoot.value.trim()) return
+  try {
+    const result = (await window.gitmove.invoke({
+      op: 'projects.scan',
+      root: scanRoot.value.trim(),
+      depth: 3
+    })) as { ok: boolean; data?: { path: string; alias: string; registered: boolean }[]; error?: { message: string } }
+    if (!result.ok) throw new Error(result.error?.message ?? '扫描失败')
+    scanRows.value = result.data ?? []
+    manageNotice.value = `发现 ${scanRows.value.length} 个仓库`
+  } catch (error) {
+    manageNotice.value = (error as Error).message
+  }
+}
 
 async function loadNote() {
   projectNote.value = ''
@@ -99,6 +139,29 @@ onMounted(() => {
     </header>
 
     <div v-if="projectNote" class="banner info">{{ projectNote }}</div>
+
+    <div class="panel pad">
+      <div class="panel-title"><strong>项目管理</strong><span class="muted">登记本地 git 仓库，或扫描目录批量发现</span></div>
+      <div v-if="manageNotice" class="banner ok">{{ manageNotice }}</div>
+      <div class="form-row">
+        <label class="field" style="min-width: 300px"><span>仓库路径</span><input v-model="projectForm.path" class="input" placeholder="D:/Project/foo" /></label>
+        <label class="field"><span>别名</span><input v-model="projectForm.alias" class="input" placeholder="foo" /></label>
+        <label class="field"><span>分组</span><input v-model="projectForm.group" class="input" placeholder="biz" /></label>
+        <button class="btn primary" @click="addProject()">添加</button>
+      </div>
+      <div class="form-row" style="margin-top: 8px">
+        <label class="field" style="min-width: 300px"><span>扫描目录</span><input v-model="scanRoot" class="input" placeholder="D:/Project" /></label>
+        <button class="btn ghost" @click="scanProjects()">扫描</button>
+      </div>
+      <div v-if="scanRows.length" class="scan-list">
+        <div v-for="row in scanRows" :key="row.path" class="scan-row">
+          <span class="mono">{{ row.alias }}</span>
+          <span class="mono dim">{{ row.path }}</span>
+          <span v-if="row.registered" class="badge ok">已登记</span>
+          <button v-else class="btn tiny" @click="addProject(row.path, row.alias)">添加</button>
+        </div>
+      </div>
+    </div>
 
     <div class="meta-row">
       <span>项目 <strong>{{ store.projects.length }}</strong></span>

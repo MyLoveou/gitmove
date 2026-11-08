@@ -158,6 +158,25 @@ enum Command {
 enum ProjectsAction {
     List,
     Info,
+    Add {
+        path: String,
+        #[arg(long)]
+        alias: Option<String>,
+        #[arg(long, default_value = "")]
+        group: String,
+        #[arg(long, default_value = "")]
+        notes: String,
+    },
+    Remove {
+        target: String,
+    },
+    Scan {
+        root: String,
+        #[arg(long, default_value_t = 2)]
+        depth: u32,
+        #[arg(long)]
+        register: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -499,14 +518,27 @@ fn run(cli: &Cli, root: &Path) -> Result<Envelope<serde_json::Value>, CoreError>
             }),
         )),
         Command::Projects { action } => match action {
-            ProjectsAction::List => {
-                let entries = gitmove_core::registry::load()?;
-                Ok(success("gitmove_list_projects", gitmove_core::registry::to_rows(&entries)))
-            }
-            ProjectsAction::Info => Ok(success(
-                "gitmove_projects_info",
-                serde_json::json!({ "count": gitmove_core::registry::load()?.len() }),
+            ProjectsAction::List => Ok(success("gitmove_list_projects", gitmove_core::registry::load()?)),
+            ProjectsAction::Info => Ok(success("gitmove_project_info", gitmove_core::registry::load()?)),
+            ProjectsAction::Add { path, alias, group, notes } => Ok(success(
+                "gitmove_projects_add",
+                gitmove_core::registry::add(path, alias.as_deref(), group, notes)?,
             )),
+            ProjectsAction::Remove { target } => Ok(success(
+                "gitmove_projects_remove",
+                serde_json::json!({ "removed": gitmove_core::registry::remove(target)? }),
+            )),
+            ProjectsAction::Scan { root, depth, register } => {
+                let rows = gitmove_core::registry::scan(root, *depth)?;
+                if *register {
+                    for row in &rows {
+                        if !row.registered {
+                            let _ = gitmove_core::registry::add(&row.path, Some(&row.alias), "", "");
+                        }
+                    }
+                }
+                Ok(success("gitmove_projects_scan", rows))
+            }
         },
         Command::Audit { all } => {
             let rows = if *all {

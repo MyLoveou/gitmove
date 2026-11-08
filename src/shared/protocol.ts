@@ -133,6 +133,12 @@ export interface HookStatusPayload {
   scripts: { repo: string; event: string; text: string }[]
 }
 
+export interface ScanRow {
+  path: string
+  alias: string
+  registered: boolean
+}
+
 export interface CommitFile {
   status: string
   path: string
@@ -283,6 +289,9 @@ export type Op =
   | { op: 'changes.list'; workspace: string }
   | { op: 'changes.diff'; workspace: string; member?: string; path: string; commit?: string }
   | { op: 'rev.files'; workspace: string; sha: string; member?: string }
+  | { op: 'projects.add'; path: string; alias?: string; group?: string; notes?: string }
+  | { op: 'projects.remove'; target: string }
+  | { op: 'projects.scan'; root: string; depth?: number; register?: boolean }
   | { op: 'asset.diff'; workspace: string; a: string; b: string; target?: string }
   | { op: 'changes.discard'; workspace: string; selections: { member: string; path: string }[] }
   | { op: 'rev.commitPaths'; workspace: string; message: string; selections: { member: string; path: string }[] }

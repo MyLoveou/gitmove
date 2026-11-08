@@ -1041,3 +1041,7 @@ tr.selected {
 .commit-files { margin-top: 12px; border-top: 1px solid var(--border); padding-top: 10px; }
 .commit-file { display: flex; gap: 10px; align-items: center; padding: 3px 0; cursor: pointer; font-size: 12px; }
 .commit-file:hover { color: var(--accent); }
+
+.scan-list { margin-top: 10px; border-top: 1px solid var(--border); padding-top: 8px; }
+.scan-row { display: flex; align-items: center; gap: 12px; padding: 4px 0; font-size: 12px; }
+.scan-row .mono.dim { flex: 1; }
