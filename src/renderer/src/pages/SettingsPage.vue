@@ -1,13 +1,15 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 
-import type { HookStatusPayload } from '../../../shared/protocol'
 import HooksPanel from '../components/HooksPanel.vue'
 import { useWorkspaceStore } from '../stores/workspace'
 
 const store = useWorkspaceStore()
+const route = useRoute()
 const info = computed(() => store.info)
 const preview = ref<{ type: string; text: string }[] | null>(null)
+type DiffLine = { type: string; text: string }
 const savedText = ref('')
 type UpdateState = { status: string; version?: string; notes?: string; percent?: number; message?: string }
 const updateState = ref<UpdateState | null>(null)
@@ -39,43 +41,6 @@ async function downloadUpdate() {
 async function installUpdate() {
   await window.gitmove.invoke({ op: 'update.install' })
 }
-const hookStatus = ref<HookStatusPayload | null>(null)
-
-async function callOp<T>(request: Parameters<Window['gitmove']['invoke']>[0]): Promise<T> {
-  const result = (await window.gitmove.invoke(request)) as { ok: boolean; data?: T; error?: { message: string } }
-  if (!result.ok) throw new Error(result.error?.message ?? '失败')
-  return result.data as T
-}
-
-async function loadHooks() {
-  if (!store.currentWorkspace) return
-  try {
-    hookStatus.value = await callOp<HookStatusPayload>({ op: 'hook.status', workspace: store.currentWorkspace })
-  } catch (error) {
-    store.flash('bad', (error as Error).message)
-  }
-}
-
-async function installHooks() {
-  try {
-    hookStatus.value = await callOp<HookStatusPayload>({ op: 'hook.install', workspace: store.currentWorkspace, events: [], members: false })
-    store.flash('ok', '已安装 pre-commit / pre-push 回调')
-  } catch (error) {
-    store.flash('bad', (error as Error).message)
-  }
-}
-
-async function uninstallHooks() {
-  try {
-    hookStatus.value = await callOp<HookStatusPayload>({ op: 'hook.uninstall', workspace: store.currentWorkspace, events: [], members: false })
-    store.flash('ok', '已移除 gitmove 钩子块')
-  } catch (error) {
-    store.flash('bad', (error as Error).message)
-  }
-}
-
-type DiffLine = { type: string; text: string }
-
 function simpleDiff(before: string, after: string): DiffLine[] {
   const a = before.split(/\r?\n/)
   const b = after.split(/\r?\n/)
@@ -145,6 +110,7 @@ function openLogs() {
 const lineNumbers = computed(() => store.fileText.split(/\r?\n/).map((_, index) => index + 1))
 
 onMounted(async () => {
+  const requested = typeof route.query.file === 'string' ? route.query.file : ''
   window.gitmove.onUpdate((state) => {
     updateState.value = state as UpdateState
   })
@@ -154,8 +120,11 @@ onMounted(async () => {
     // ignore
   }
   await store.loadFiles()
-  savedText.value = store.fileText
-  await loadHooks()
+  if (requested) {
+    await loadSelected(requested)
+  } else {
+    savedText.value = store.fileText
+  }
 })
 
 watch(

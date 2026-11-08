@@ -2,9 +2,12 @@
 import { computed, onMounted, watch, ref } from 'vue'
 
 import type { DepRow } from '../../../shared/protocol'
+import { useRouter } from 'vue-router'
+
 import { useWorkspaceStore } from '../stores/workspace'
 
 const store = useWorkspaceStore()
+const router = useRouter()
 const rows = ref<DepRow[]>([])
 const offCount = computed(() => rows.value.filter((row) => row.drift || !row.in_effect).length)
 const busy = ref(false)

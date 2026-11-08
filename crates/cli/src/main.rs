@@ -65,6 +65,7 @@ enum Command {
         #[arg(long)]
         target: Option<String>,
     },
+    Doctor,
     Diff {
         path: String,
         #[arg(long)]
@@ -596,6 +597,7 @@ fn run(cli: &Cli, root: &Path) -> Result<Envelope<serde_json::Value>, CoreError>
             "gitmove_asset_diff",
             gitmove_core::asset::diff_snapshots(root, target.as_deref(), a, b)?,
         )),
+        Command::Doctor => Ok(success("gitmove_doctor", gitmove_core::doctor::run(root)?)),
         Command::Diff { path, member, commit } => {
             let payload = match commit {
                 Some(sha) => gitmove_core::diff::commit_diff(root, member.as_deref(), sha, path)?,
@@ -1161,6 +1163,11 @@ fn mcp_tools() -> Vec<serde_json::Value> {
             }
         }),
         serde_json::json!({
+            "name": "gitmove_doctor",
+            "description": "Workspace health checks: members, lock drift, backup targets, guard, hooks, merge state",
+            "inputSchema": { "type": "object", "properties": {} }
+        }),
+        serde_json::json!({
             "name": "gitmove_commit",
             "description": "Create a revision (needs confirm=true and GITMOVE_MCP_ALLOW_WRITE=1)",
             "inputSchema": {
@@ -1354,6 +1361,7 @@ fn mcp_call(root: &Path, params: &serde_json::Value, allow_write: bool) -> Resul
             confirm_required(allow_write, &args)?;
             gitmove_core::hooks::run(root, arg_str(&args, "event")).map(|rows| serde_json::json!(rows))
         }
+        "gitmove_doctor" => gitmove_core::doctor::run(root).map(|rows| serde_json::json!(rows)),
         "gitmove_commit" => {
             if !allow_write {
                 return Err((-32000, "MCP write disabled: set GITMOVE_MCP_ALLOW_WRITE=1".to_string()));
