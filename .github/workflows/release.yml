@@ -9,6 +9,13 @@ on:
 permissions:
   contents: write
 
+env:
+  # Electron / electron-builder binaries are fetched from GitHub Releases; use a
+  # mirror so a 504 from the origin does not fail the build.
+  ELECTRON_MIRROR: https://npmmirror.com/mirrors/electron/
+  ELECTRON_BUILDER_BINARIES_MIRROR: https://npmmirror.com/mirrors/electron-builder-binaries/
+  npm_config_registry: https://registry.npmjs.org
+
 jobs:
   verify:
     name: Verify version matches tag
@@ -56,7 +63,16 @@ jobs:
           node-version: 22
           cache: npm
 
-      - run: npm install --no-audit --no-fund
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          for ($i = 1; $i -le 3; $i++) {
+            npm install --no-audit --no-fund
+            if ($LASTEXITCODE -eq 0) { exit 0 }
+            Write-Host "npm install failed (attempt $i), retrying in 15s"
+            Start-Sleep -Seconds 15
+          }
+          exit 1
       - run: npm run typecheck
 
   build:
@@ -84,7 +100,16 @@ jobs:
           node-version: 22
           cache: npm
 
-      - run: npm install --no-audit --no-fund
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          for ($i = 1; $i -le 3; $i++) {
+            npm install --no-audit --no-fund
+            if ($LASTEXITCODE -eq 0) { exit 0 }
+            Write-Host "npm install failed (attempt $i), retrying in 15s"
+            Start-Sleep -Seconds 15
+          }
+          exit 1
 
       - name: Build renderer
         run: npm run build
